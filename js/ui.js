@@ -1,9 +1,267 @@
 // ===== UI rendering & interaction =====
 const $ = sel => document.querySelector(sel);
 const TOKENS = ['🎩', '🚗', '🐕', '⛵', '👢', '🐈'];
-const DICE_CH = ['', '⚀', '⚁', '⚂', '⚃', '⚄', '⚅'];
+const TOKEN_IMGS = ['tok_hat', 'tok_car', 'tok_dog', 'tok_ship', 'tok_boot', 'tok_cat'];
 let unreadChat = 0;
-let lastCardKey = '';
+const cardFx = { key: '', visible: false };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+// ---------- Sounds (tiny WebAudio synth, no files) ----------
+const snd = (() => {
+  let ctx, muted = localStorage.getItem('mono-mute') === '1';
+  const ac = () => ctx || (ctx = new (window.AudioContext || window.webkitAudioContext)());
+  function tone(freq, type, dur, vol = 0.12, when = 0) {
+    if (muted) return;
+    try {
+      const c = ac(); if (c.state === 'suspended') c.resume();
+      const o = c.createOscillator(), g = c.createGain();
+      o.type = type; o.frequency.value = freq; o.connect(g); g.connect(c.destination);
+      const t = c.currentTime + when;
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.012);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      o.start(t); o.stop(t + dur + 0.05);
+    } catch (e) { /* audio unavailable */ }
+  }
+  return {
+    hop: () => tone(330 + Math.random() * 90, 'triangle', 0.09, 0.07),
+    dice: () => { for (let i = 0; i < 7; i++) tone(150 + Math.random() * 260, 'square', 0.05, 0.04, i * 0.09); },
+    cash: () => { tone(880, 'sine', 0.12, 0.1); tone(1318, 'sine', 0.2, 0.09, 0.09); },
+    card: () => tone(520, 'sine', 0.28, 0.08),
+    win: () => [523, 659, 784, 1047, 1318].forEach((f, i) => tone(f, 'triangle', 0.4, 0.13, i * 0.16)),
+    toggle() { muted = !muted; localStorage.setItem('mono-mute', muted ? '1' : '0'); return muted; },
+    muted: () => muted,
+  };
+})();
+
+// ---------- FX engine: token movement, 3D dice, cinematic camera ----------
+const fxq = { chain: Promise.resolve(), disp: null, diceSeq: 0, money: null };
+let fxBusy = 0;
+function queueFx(fn) {
+  fxBusy++;
+  fxq.chain = fxq.chain.then(fn).catch(() => {}).then(() => {
+    fxBusy--;
+    // animations done: show the modals/buttons we held back
+    if (fxBusy === 0 && NET.state) { renderCenter(); renderModals(); }
+  });
+}
+
+function tileXY(i) {
+  const board = $('#board'), tile = board.querySelector(`.tile[data-idx="${i}"]`);
+  return { x: tile.offsetLeft + tile.offsetWidth / 2, y: tile.offsetTop + tile.offsetHeight * 0.62 };
+}
+
+function ensureTokens(s) {
+  const layer = $('#token-layer');
+  s.players.forEach((p, pi) => {
+    let el = document.getElementById('ptok-' + pi);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'ptok' + (p.peerId === NET.myPeerId ? ' mytok' : '');
+      el.id = 'ptok-' + pi;
+      el.innerHTML = `<div class="ptok-tilt"><img src="assets/${TOKEN_IMGS[p.color]}.png" alt=""></div>`;
+      layer.appendChild(el);
+    }
+    el.style.display = p.bankrupt ? 'none' : '';
+  });
+}
+
+function setTokenPos(pi, tileIdx, group) {
+  const el = document.getElementById('ptok-' + pi);
+  if (!el) return;
+  const { x, y } = tileXY(tileIdx);
+  const n = group ? group.length : 1, k = group ? group.indexOf(pi) : 0;
+  const w = $('#board').offsetWidth * 0.022;
+  el.style.left = (x + (k - (n - 1) / 2) * w * 1.6) + 'px';
+  el.style.top = (y + (k % 2) * w * 0.5) + 'px';
+}
+
+function placeAllTokens(s) {
+  if (!fxq.disp) return;
+  const groups = {};
+  s.players.forEach((p, pi) => { if (!p.bankrupt) (groups[fxq.disp[pi]] = groups[fxq.disp[pi]] || []).push(pi); });
+  s.players.forEach((p, pi) => { if (!p.bankrupt) setTokenPos(pi, fxq.disp[pi], groups[fxq.disp[pi]]); });
+}
+
+function retrigger(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
+
+function camFocus(tileIdx, zoom) {
+  const bt = document.querySelector('.board-tilt'), b = $('#board');
+  const { x, y } = tileXY(tileIdx);
+  bt.style.setProperty('--zoom', zoom);
+  bt.style.setProperty('--panx', ((b.offsetWidth / 2 - x) * 0.42) + 'px');
+  bt.style.setProperty('--pany', ((b.offsetHeight / 2 - y) * 0.42) + 'px');
+}
+function camReset() {
+  const bt = document.querySelector('.board-tilt');
+  bt.style.removeProperty('--zoom'); bt.style.setProperty('--panx', '0px'); bt.style.setProperty('--pany', '0px');
+}
+
+async function walkToken(s, pi, from, to) {
+  const el = document.getElementById('ptok-' + pi);
+  if (!el) { fxq.disp[pi] = to; return; }
+  let steps = (to - from + 40) % 40, dir = 1;
+  if (steps >= 37) { dir = -1; steps = 40 - steps; }
+  camFocus(to, 1.3);
+  if (steps === 0 || steps > 12) {
+    // teleport (jail, card): one big arc jump
+    retrigger(el, 'fly');
+    setTokenPos(pi, to);
+    snd.card();
+    await sleep(680);
+    el.classList.remove('fly');
+  } else {
+    for (let k = 1; k <= steps; k++) {
+      const t = (from + dir * k + 40) % 40;
+      retrigger(el, 'hop');
+      setTokenPos(pi, t);
+      snd.hop();
+      await sleep(215);
+    }
+    el.classList.remove('hop');
+  }
+  fxq.disp[pi] = to;
+  placeAllTokens(s);
+  await sleep(500);
+  camReset();
+}
+
+// --- 3D dice ---
+const DIE_ORI = { 1: [0, 0], 2: [90, 0], 3: [0, -90], 4: [0, 90], 5: [-90, 0], 6: [0, 180] };
+function buildDie() {
+  const d = document.createElement('div');
+  d.className = 'die3d';
+  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
+  for (let f = 1; f <= 6; f++) {
+    const face = document.createElement('div');
+    face.className = 'dface f' + f;
+    for (let c = 0; c < 9; c++) face.innerHTML += `<div class="pip${PIPS[f].includes(c) ? '' : ' off'}"></div>`;
+    d.appendChild(face);
+  }
+  return d;
+}
+function ensureDice() {
+  const row = $('#dice');
+  if (!row.querySelector('.die3d')) { row.appendChild(buildDie()); row.appendChild(buildDie()); }
+  return row.querySelectorAll('.die3d');
+}
+function setDice(vals, animate) {
+  const dice = ensureDice();
+  $('#dice').style.visibility = vals ? 'visible' : 'hidden';
+  if (!vals) return;
+  dice.forEach((d, i) => {
+    const [ax, ay] = DIE_ORI[vals[i]];
+    if (animate) {
+      d.style.transition = 'none';
+      d.style.transform = `rotateX(${ax - 720 - Math.floor(Math.random() * 2) * 360}deg) rotateY(${ay - 1080}deg) scale(.4)`;
+      void d.offsetWidth;
+      d.style.transition = '';
+      d.style.transform = `rotateX(${ax}deg) rotateY(${ay}deg) scale(1)`;
+    } else {
+      d.style.transform = `rotateX(${ax}deg) rotateY(${ay}deg)`;
+    }
+  });
+}
+
+function renderFx(s) {
+  ensureTokens(s);
+  if (!fxq.disp) {
+    // first state: snap everything into place
+    fxq.disp = s.players.map(p => p.pos);
+    fxq.money = s.players.map(p => p.money);
+    fxq.diceSeq = s.diceSeq || 0;
+    placeAllTokens(s);
+    setDice(s.dice, false);
+    return;
+  }
+  // money change chime
+  if (fxq.money && s.players.some((p, i) => fxq.money[i] !== undefined && p.money !== fxq.money[i])) snd.cash();
+  fxq.money = s.players.map(p => p.money);
+  // dice tumble on new roll
+  if ((s.diceSeq || 0) !== fxq.diceSeq) {
+    fxq.diceSeq = s.diceSeq || 0;
+    queueFx(async () => { snd.dice(); setDice(s.dice, true); await sleep(1050); });
+  } else if (!s.dice) {
+    queueFx(async () => setDice(null, false));
+  }
+  // token movement
+  let moved = false;
+  s.players.forEach((p, pi) => {
+    const from = fxq.disp[pi];
+    if (!p.bankrupt && p.pos !== from) { moved = true; queueFx(() => walkToken(s, pi, from, p.pos)); }
+  });
+  if (!moved && fxBusy === 0) placeAllTokens(s);
+}
+
+// --- confetti ---
+let confettiFired = false;
+function confettiBurst() {
+  if (confettiFired) return;
+  confettiFired = true;
+  const c = $('#confetti'), colors = ['#e74c3c', '#f1c40f', '#2ecc71', '#3498db', '#9b59b6', '#e67e22'];
+  for (let i = 0; i < 110; i++) {
+    const d = document.createElement('div');
+    d.className = 'conf';
+    d.style.left = Math.random() * 100 + 'vw';
+    d.style.background = colors[i % colors.length];
+    d.style.animationDuration = (2.4 + Math.random() * 2.2) + 's';
+    d.style.animationDelay = (Math.random() * 1.4) + 's';
+    c.appendChild(d);
+  }
+  snd.win();
+  setTimeout(() => { c.innerHTML = ''; }, 7000);
+}
+
+// ---------- Card draw animation ----------
+function showCardFx(s) {
+  const isChance = s.pendingCard.deck === 'ШАНС';
+  const cls = isChance ? 'chance' : 'chest';
+  const deckEl = $(isChance ? '#deck-chance' : '#deck-chest');
+  const fx = $('#card-fx'), card = $('#fx-card'), inner = $('#fx-inner');
+  const back = $('#fx-back'), front = $('#fx-front');
+  back.className = 'fx-face fx-back ' + cls;
+  back.innerHTML = `<div class="fx-big">${isChance ? '❓' : '📦'}</div><div>${s.pendingCard.deck}</div>`;
+  front.innerHTML = `<div class="fx-front-head ${cls}">${isChance ? '❓' : '📦'} ${s.pendingCard.deck}</div>
+    <div class="fx-front-body">${esc(s.pendingCard.text)}</div>
+    <div class="fx-front-foot"><div class="fx-who">Карта для: ${esc(s.pendingCard.player)}</div><span id="fx-ok"></span></div>`;
+  updateCardFxButton(s);
+  snd.card();
+  // start small at the deck's on-screen position, card back up
+  const r = deckEl.getBoundingClientRect();
+  fx.classList.remove('animating', 'leaving', 'dim');
+  fx.style.display = 'block';
+  card.style.left = r.left + 'px'; card.style.top = r.top + 'px';
+  card.style.width = Math.max(r.width, 44) + 'px'; card.style.height = Math.max(r.height, 28) + 'px';
+  inner.style.transform = 'rotateY(0deg)';
+  cardFx.visible = true;
+  // fly to screen center while flipping over
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    fx.classList.add('animating', 'dim');
+    const W = Math.min(window.innerWidth * 0.88, 430), H = Math.round(W * 0.62);
+    card.style.left = Math.round((window.innerWidth - W) / 2) + 'px';
+    card.style.top = Math.round((window.innerHeight - H) / 2) + 'px';
+    card.style.width = W + 'px'; card.style.height = H + 'px';
+    inner.style.transform = 'rotateY(180deg)';
+  }));
+}
+
+function updateCardFxButton(s) {
+  const ok = $('#fx-ok');
+  if (!ok || !s.pendingCard) return;
+  const mine = myPlayerIndex() === s.turn;
+  ok.innerHTML = mine
+    ? `<button class="btn gold" onclick="sendAction({type:'dismissCard'})">OK</button>`
+    : '';
+}
+
+function hideCardFx() {
+  const fx = $('#card-fx');
+  cardFx.visible = false; cardFx.key = '';
+  fx.classList.add('leaving'); fx.classList.remove('dim');
+  setTimeout(() => {
+    if (!cardFx.visible) { fx.style.display = 'none'; fx.classList.remove('leaving', 'animating'); }
+  }, 470);
+}
 
 // ---------- Board construction ----------
 function gridPos(i) {
@@ -61,6 +319,7 @@ function render() {
   renderCenter();
   renderLog();
   renderModals();
+  renderFx(NET.state);
 }
 
 function renderLobby() {
@@ -86,7 +345,7 @@ function renderPlaques() {
     const col = PLAYER_COLORS[p.color];
     return `<div class="plaque ${i === s.turn ? 'active' : ''} ${p.bankrupt ? 'dead' : ''}"
       style="background:linear-gradient(90deg,${col.grad[0]},${col.grad[1]})">
-      <div class="plaque-ava">${TOKENS[p.color]}</div>
+      <div class="plaque-ava"><img src="assets/ava_${p.color}.png" alt=""></div>
       <div class="plaque-info"><div class="plaque-name">${esc(p.name)}${p.peerId === NET.myPeerId ? ' (ты)' : ''}</div>
       <div class="plaque-money">${CUR}${p.money}${p.inJail ? ' 🚔' : ''}${p.jailCards ? ' 🎫'.repeat(p.jailCards) : ''}</div></div>
     </div>`;
@@ -107,11 +366,8 @@ function renderTiles() {
         ownerEl.style.display = 'block';
         d.classList.toggle('mortgaged', ps.mortgaged);
       } else { ownerEl.style.display = 'none'; d.classList.remove('mortgaged'); }
-      housesEl.innerHTML = ps.houses === 5 ? '<span class="hotel">🏨</span>' : '🏡'.repeat(ps.houses);
+      housesEl.innerHTML = ps.houses === 5 ? '<span class="hotel3d"></span>' : '<span class="house"></span>'.repeat(ps.houses);
     }
-    const toks = s.players.map((p, pi) => ({ p, pi })).filter(x => !x.p.bankrupt && x.p.pos === i);
-    d.querySelector('.tile-tokens').innerHTML = toks.map(x =>
-      `<span class="token" style="border-color:${PLAYER_COLORS[x.p.color].solid}">${TOKENS[x.p.color]}</span>`).join('');
   });
 }
 
@@ -121,8 +377,7 @@ function renderCenter() {
   const myTurn = me === s.turn && !s.players[me]?.bankrupt && s.winner === null;
   const p = s.players[s.turn];
 
-  $('#dice').innerHTML = s.dice ? `<span class="die">${DICE_CH[s.dice[0]]}</span><span class="die">${DICE_CH[s.dice[1]]}</span>` : '';
-  const canRoll = myTurn && !s.rolled && s.pendingBuy === null;
+  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && fxBusy === 0;
   $('#btn-roll').style.display = canRoll ? 'inline-block' : 'none';
 
   const showJail = myTurn && p.inJail && !s.rolled;
@@ -139,7 +394,7 @@ function renderCenter() {
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];
-  $('#act-end').disabled = !(myTurn && s.rolled && s.pendingBuy === null && meP && meP.money >= 0);
+  $('#act-end').disabled = !(myTurn && s.rolled && s.pendingBuy === null && meP && meP.money >= 0 && fxBusy === 0);
   ['#act-trade', '#act-build', '#act-sell', '#act-mortgage', '#act-redeem'].forEach(id => {
     $(id).disabled = me < 0 || s.players[me]?.bankrupt || s.winner !== null;
   });
@@ -155,9 +410,11 @@ function renderLog() {
 function renderModals() {
   const s = NET.state;
   const me = myPlayerIndex();
+  if (fxBusy > 0 && !modalLocked) { if ($('#modal-overlay').style.display !== 'none' && !modalLocked) closeModal(); return; } // wait for animations
 
   if (s.winner !== null) {
     const w = s.players[s.winner];
+    confettiBurst();
     openModal(`<div class="modal-title">🏆 ПОБЕДА!</div>
       <div class="card-body big">${esc(w.name)} — монополист!</div>
       <button class="btn gold" onclick="location.reload()">Новая игра</button>`);
@@ -166,12 +423,12 @@ function renderModals() {
 
   if (s.pendingCard) {
     const key = s.pendingCard.deck + s.pendingCard.text + s.pendingCard.player;
-    openModal(`<div class="modal-title">${s.pendingCard.deck}</div>
-      <div class="card-body">${esc(s.pendingCard.player)}: «${esc(s.pendingCard.text)}»</div>
-      <button class="btn gold" onclick="sendAction({type:'dismissCard'})">OK</button>`);
-    lastCardKey = key;
+    if (key !== cardFx.key || !cardFx.visible) { cardFx.key = key; showCardFx(s); }
+    else updateCardFxButton(s);
+    if (!modalLocked) closeModal();
     return;
   }
+  if (cardFx.visible) hideCardFx();
 
   if (s.pendingBuy !== null) {
     const t = TILES[s.pendingBuy];
@@ -380,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
     $('#btn-create').disabled = true;
     hostGame(name, (err) => {
-      if (err) { $('#lobby-error').textContent = 'Ошибка соединения: ' + err.type; $('#btn-create').disabled = false; return; }
+      if (err) { $('#lobby-error').textContent = err.message || 'Ошибка соединения'; $('#btn-create').disabled = false; return; }
       renderLobby();
     });
   });
@@ -389,7 +646,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const name = $('#inp-name').value.trim();
     const code = $('#inp-code').value.trim();
     if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
-    if (code.length !== 5) { $('#lobby-error').textContent = 'Код комнаты — 5 символов'; return; }
+    if (code.length !== 6) { $('#lobby-error').textContent = 'Код комнаты — 6 символов'; return; }
     $('#btn-join').disabled = true;
     $('#lobby-error').textContent = 'Подключение…';
     joinGame(name, code, err => {
@@ -418,7 +675,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#btn-menu').addEventListener('click', () => {
     document.querySelector('.board-tilt').classList.toggle('flat');
+    setTimeout(() => NET.state && placeAllTokens(NET.state), 60);
   });
+
+  $('#btn-sound').textContent = snd.muted() ? '🔇' : '🔊';
+  $('#btn-sound').addEventListener('click', () => {
+    $('#btn-sound').textContent = snd.toggle() ? '🔇' : '🔊';
+  });
+
+  window.addEventListener('resize', () => NET.state && placeAllTokens(NET.state));
 
   $('#btn-chat').addEventListener('click', () => {
     const p = $('#chat-panel');
