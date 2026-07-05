@@ -207,6 +207,7 @@ function applyAction(state, pi, a) {
       if (!isTurn || state.rolled || state.pendingBuy !== null) return;
       const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
       state.dice = [d1, d2];
+      state.diceSeq = (state.diceSeq || 0) + 1;
       const isDouble = d1 === d2;
       if (p.inJail) {
         p.jailTurns++;
