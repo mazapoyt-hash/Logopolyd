@@ -7,7 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
-<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script src="js/mqtt.min.js"></script>
 </head>
 <body>
 
@@ -21,7 +21,7 @@
       <input id="inp-name" maxlength="14" placeholder="Твоё имя" autocomplete="off">
       <button id="btn-create" class="btn gold">Создать комнату</button>
       <div class="join-row">
-        <input id="inp-code" maxlength="5" placeholder="КОД" autocomplete="off">
+        <input id="inp-code" maxlength="6" placeholder="КОД" autocomplete="off">
         <button id="btn-join" class="btn">Войти</button>
       </div>
       <div id="lobby-error" class="lobby-error"></div>
@@ -45,14 +45,21 @@
 <div id="game" class="screen" style="display:none">
   <div class="topbar">
     <button class="icon-btn" id="btn-menu">☰</button>
+    <button class="icon-btn" id="btn-sound">🔊</button>
     <div id="plaques" class="plaques"></div>
     <button class="icon-btn" id="btn-chat">💬<span id="chat-badge" class="chat-badge" style="display:none"></span></button>
   </div>
 
   <div class="board-scene">
     <div class="board-tilt">
+      <div class="table-surface">
+        <img class="table-prop money-prop" src="assets/prop_money.png" alt="">
+        <img class="table-prop money-prop2" src="assets/prop_money.png" alt="">
+      </div>
       <div id="board" class="board">
         <div class="board-center">
+          <div class="deck deck-chance" id="deck-chance"><div class="deck-top">❓<span>ШАНС</span></div></div>
+          <div class="deck deck-chest" id="deck-chest"><div class="deck-top">📦<span>КАЗНА</span></div></div>
           <div class="center-logo">MONOPOLY</div>
           <div id="dice" class="dice-row"></div>
           <button id="btn-roll" class="btn gold roll-btn" style="display:none">Бросить кубики</button>
@@ -62,6 +69,7 @@
           </div>
           <div id="turn-hint" class="turn-hint"></div>
         </div>
+        <div id="token-layer"></div>
       </div>
     </div>
   </div>
@@ -90,6 +98,18 @@
   <!-- Modals -->
   <div id="modal-overlay" class="modal-overlay" style="display:none">
     <div id="modal" class="modal"></div>
+  </div>
+
+  <div id="confetti"></div>
+
+  <!-- Card draw FX -->
+  <div id="card-fx" style="display:none">
+    <div class="fx-card" id="fx-card">
+      <div class="fx-inner" id="fx-inner">
+        <div class="fx-face fx-back" id="fx-back"></div>
+        <div class="fx-face fx-front" id="fx-front"></div>
+      </div>
+    </div>
   </div>
 </div>
 
