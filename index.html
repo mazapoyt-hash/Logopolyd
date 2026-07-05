@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monopoly Online</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/style.css">
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+</head>
+<body>
+
+<!-- ================= LOBBY ================= -->
+<div id="lobby" class="screen">
+  <div class="lobby-card">
+    <div class="mono-logo">MONOPOLY</div>
+    <div class="lobby-sub">Онлайн-игра с друзьями</div>
+
+    <div id="lobby-form">
+      <input id="inp-name" maxlength="14" placeholder="Твоё имя" autocomplete="off">
+      <button id="btn-create" class="btn gold">Создать комнату</button>
+      <div class="join-row">
+        <input id="inp-code" maxlength="5" placeholder="КОД" autocomplete="off">
+        <button id="btn-join" class="btn">Войти</button>
+      </div>
+      <div id="lobby-error" class="lobby-error"></div>
+    </div>
+
+    <div id="lobby-wait" style="display:none">
+      <div class="room-code-label">Код комнаты — отправь друзьям:</div>
+      <div class="room-code-row">
+        <div id="room-code" class="room-code">-----</div>
+        <button id="btn-copy" class="btn small">Копировать</button>
+      </div>
+      <div class="players-label">Игроки:</div>
+      <div id="lobby-players" class="lobby-players"></div>
+      <button id="btn-start" class="btn gold" style="display:none">Начать игру</button>
+      <div id="wait-note" class="wait-note">Ожидание игроков…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ================= GAME ================= -->
+<div id="game" class="screen" style="display:none">
+  <div class="topbar">
+    <button class="icon-btn" id="btn-menu">☰</button>
+    <div id="plaques" class="plaques"></div>
+    <button class="icon-btn" id="btn-chat">💬<span id="chat-badge" class="chat-badge" style="display:none"></span></button>
+  </div>
+
+  <div class="board-scene">
+    <div class="board-tilt">
+      <div id="board" class="board">
+        <div class="board-center">
+          <div class="center-logo">MONOPOLY</div>
+          <div id="dice" class="dice-row"></div>
+          <button id="btn-roll" class="btn gold roll-btn" style="display:none">Бросить кубики</button>
+          <div id="jail-actions" class="jail-actions" style="display:none">
+            <button id="btn-payjail" class="btn small">Заплатить ₩50</button>
+            <button id="btn-jailcard" class="btn small" style="display:none">Карта выхода</button>
+          </div>
+          <div id="turn-hint" class="turn-hint"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="log" class="log-panel"></div>
+
+  <div class="actionbar">
+    <button class="act-btn" id="act-trade"><span class="act-ico">🤝</span>ОБМЕН</button>
+    <button class="act-btn" id="act-build"><span class="act-ico">🏠</span>СТРОИТЬ</button>
+    <button class="act-btn" id="act-sell"><span class="act-ico">🏚</span>ПРОДАТЬ</button>
+    <button class="act-btn" id="act-mortgage"><span class="act-ico">🏦</span>ЗАЛОГ</button>
+    <button class="act-btn" id="act-redeem"><span class="act-ico">📜</span>ВЫКУП</button>
+    <button class="act-btn end" id="act-end"><span class="act-ico">➡️</span>КОНЕЦ ХОДА</button>
+  </div>
+
+  <!-- Chat -->
+  <div id="chat-panel" class="chat-panel" style="display:none">
+    <div class="chat-head">Чат <button class="icon-btn" id="btn-chat-close">✕</button></div>
+    <div id="chat-msgs" class="chat-msgs"></div>
+    <div class="chat-inp-row">
+      <input id="chat-inp" maxlength="300" placeholder="Сообщение…">
+      <button id="chat-send" class="btn small">➤</button>
+    </div>
+  </div>
+
+  <!-- Modals -->
+  <div id="modal-overlay" class="modal-overlay" style="display:none">
+    <div id="modal" class="modal"></div>
+  </div>
+</div>
+
+<script src="js/data.js"></script>
+<script src="js/game.js"></script>
+<script src="js/net.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
