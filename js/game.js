@@ -1,0 +1,400 @@
+// ===== Game engine (runs on the host, clients only render state) =====
+
+function newGameState(lobbyPlayers) {
+  const props = {};
+  TILES.forEach((t, i) => {
+    if (t.type === 'prop' || t.type === 'rail' || t.type === 'util') {
+      props[i] = { owner: -1, houses: 0, mortgaged: false };
+    }
+  });
+  return {
+    started: true,
+    players: lobbyPlayers.map((p, i) => ({
+      peerId: p.peerId, name: p.name, color: i % PLAYER_COLORS.length,
+      money: 1500, pos: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
+    })),
+    props,
+    turn: 0,
+    dice: null,
+    rolled: false,
+    doubles: 0,
+    pendingBuy: null,       // tile index awaiting buy/decline
+    pendingCard: null,      // {deck, text} shown to all
+    trade: null,            // {from, to, giveMoney, getMoney, giveProps, getProps}
+    chanceIdx: 0, chestIdx: 0,
+    chanceDeck: shuffle([...CHANCE_CARDS.keys()]),
+    chestDeck: shuffle([...CHEST_CARDS.keys()]),
+    log: [],
+    winner: null,
+  };
+}
+
+function shuffle(a) {
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function glog(state, msg) {
+  state.log.push(msg);
+  if (state.log.length > 60) state.log.shift();
+}
+
+function pName(state, i) { return state.players[i].name; }
+
+function countGroup(state, group, owner) {
+  let total = 0, owned = 0;
+  TILES.forEach((t, i) => {
+    if (t.type === 'prop' && t.group === group) {
+      total++;
+      if (state.props[i].owner === owner) owned++;
+    }
+  });
+  return { total, owned, monopoly: total === owned && total > 0 };
+}
+
+function countType(state, type, owner) {
+  let n = 0;
+  TILES.forEach((t, i) => { if (t.type === type && state.props[i].owner === owner) n++; });
+  return n;
+}
+
+function calcRent(state, tileIdx, diceSum) {
+  const t = TILES[tileIdx];
+  const ps = state.props[tileIdx];
+  if (ps.mortgaged) return 0;
+  if (t.type === 'rail') {
+    const n = countType(state, 'rail', ps.owner);
+    return [0, 25, 50, 100, 200][n];
+  }
+  if (t.type === 'util') {
+    const n = countType(state, 'util', ps.owner);
+    return diceSum * (n === 2 ? 10 : 4);
+  }
+  if (ps.houses > 0) return t.rent[ps.houses];
+  const g = countGroup(state, t.group, ps.owner);
+  return g.monopoly ? t.rent[0] * 2 : t.rent[0];
+}
+
+function transfer(state, fromIdx, toIdx, amount) {
+  // toIdx === -1 => bank
+  if (fromIdx >= 0) state.players[fromIdx].money -= amount;
+  if (toIdx >= 0) state.players[toIdx].money += amount;
+}
+
+function movePlayer(state, pi, steps) {
+  const p = state.players[pi];
+  const old = p.pos;
+  p.pos = (p.pos + steps + 40) % 40;
+  if (steps > 0 && p.pos < old) {
+    p.money += 200;
+    glog(state, `${p.name} проходит GO и получает ${CUR}200`);
+  }
+}
+
+function moveTo(state, pi, tileIdx, collectGo = true) {
+  const p = state.players[pi];
+  if (collectGo && tileIdx < p.pos) {
+    p.money += 200;
+    glog(state, `${p.name} проходит GO и получает ${CUR}200`);
+  }
+  p.pos = tileIdx;
+}
+
+function sendToJail(state, pi) {
+  const p = state.players[pi];
+  p.pos = 10; p.inJail = true; p.jailTurns = 0;
+  state.doubles = 0;
+  glog(state, `${p.name} отправляется в тюрьму 🚔`);
+}
+
+function landOn(state, pi, diceSum, rentMult = 1) {
+  const p = state.players[pi];
+  const t = TILES[p.pos];
+  const idx = p.pos;
+  switch (t.type) {
+    case 'prop': case 'rail': case 'util': {
+      const ps = state.props[idx];
+      if (ps.owner === -1) {
+        if (p.money >= (t.price || 0) || true) state.pendingBuy = idx;
+      } else if (ps.owner !== pi && !ps.mortgaged && !state.players[ps.owner].bankrupt) {
+        const rent = calcRent(state, idx, diceSum) * rentMult;
+        transfer(state, pi, ps.owner, rent);
+        glog(state, `${p.name} платит ${CUR}${rent} аренды → ${pName(state, ps.owner)} (${t.name})`);
+      }
+      break;
+    }
+    case 'tax':
+      transfer(state, pi, -1, t.amount);
+      glog(state, `${p.name} платит налог ${CUR}${t.amount}`);
+      break;
+    case 'chance': drawCard(state, pi, 'chance', diceSum); break;
+    case 'chest': drawCard(state, pi, 'chest', diceSum); break;
+    case 'gotojail': sendToJail(state, pi); break;
+    default: break;
+  }
+}
+
+function drawCard(state, pi, deck, diceSum) {
+  const cards = deck === 'chance' ? CHANCE_CARDS : CHEST_CARDS;
+  const order = deck === 'chance' ? state.chanceDeck : state.chestDeck;
+  const key = deck === 'chance' ? 'chanceIdx' : 'chestIdx';
+  const card = cards[order[state[key] % order.length]];
+  state[key]++;
+  const p = state.players[pi];
+  state.pendingCard = { deck: deck === 'chance' ? 'ШАНС' : 'ОБЩЕСТВЕННАЯ КАЗНА', text: card.text, player: p.name };
+  glog(state, `${p.name} тянет карту: «${card.text}»`);
+  switch (card.act) {
+    case 'money': p.money += card.v; break;
+    case 'moveTo': moveTo(state, pi, card.v); landOn(state, pi, diceSum); break;
+    case 'back3': movePlayer(state, pi, -3); landOn(state, pi, diceSum); break;
+    case 'jail': sendToJail(state, pi); break;
+    case 'jailcard': p.jailCards++; break;
+    case 'payEach':
+      state.players.forEach((q, qi) => {
+        if (qi !== pi && !q.bankrupt) { p.money -= card.v; q.money += card.v; }
+      });
+      break;
+    case 'collectEach':
+      state.players.forEach((q, qi) => {
+        if (qi !== pi && !q.bankrupt) { q.money -= card.v; p.money += card.v; }
+      });
+      break;
+    case 'repairs': {
+      let cost = 0;
+      Object.entries(state.props).forEach(([ti, ps]) => {
+        if (ps.owner === pi) cost += ps.houses === 5 ? card.ho : ps.houses * card.h;
+      });
+      p.money -= cost;
+      if (cost) glog(state, `${p.name} платит за ремонт ${CUR}${cost}`);
+      break;
+    }
+    case 'nearRail': {
+      const rails = [5, 15, 25, 35];
+      const target = rails.find(r => r > p.pos) ?? rails[0];
+      moveTo(state, pi, target);
+      landOn(state, pi, diceSum, 2);
+      break;
+    }
+    case 'nearUtil': {
+      const utils = [12, 28];
+      const target = utils.find(u => u > p.pos) ?? utils[0];
+      moveTo(state, pi, target);
+      const ps = state.props[target];
+      if (ps.owner !== -1 && ps.owner !== pi && !ps.mortgaged) {
+        const rent = diceSum * 10;
+        transfer(state, pi, ps.owner, rent);
+        glog(state, `${p.name} платит ${CUR}${rent} → ${pName(state, ps.owner)}`);
+      } else if (ps.owner === -1) {
+        state.pendingBuy = target;
+      }
+      break;
+    }
+  }
+}
+
+// ===== Action handler: (state, playerIdx, action) -> mutates state =====
+function applyAction(state, pi, a) {
+  const p = state.players[pi];
+  if (state.winner !== null) return;
+  if (p.bankrupt) return;
+  const isTurn = state.turn === pi;
+
+  switch (a.type) {
+    case 'roll': {
+      if (!isTurn || state.rolled || state.pendingBuy !== null) return;
+      const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
+      state.dice = [d1, d2];
+      const isDouble = d1 === d2;
+      if (p.inJail) {
+        p.jailTurns++;
+        if (isDouble) {
+          p.inJail = false;
+          glog(state, `${p.name} выбрасывает дубль ${d1}:${d2} и выходит из тюрьмы!`);
+          state.rolled = true;
+          movePlayer(state, pi, d1 + d2);
+          landOn(state, pi, d1 + d2);
+        } else if (p.jailTurns >= 3) {
+          p.money -= 50;
+          p.inJail = false;
+          glog(state, `${p.name} платит ${CUR}50 и выходит из тюрьмы`);
+          state.rolled = true;
+          movePlayer(state, pi, d1 + d2);
+          landOn(state, pi, d1 + d2);
+        } else {
+          glog(state, `${p.name} бросает ${d1}:${d2} — не дубль, остаётся в тюрьме`);
+          state.rolled = true;
+        }
+        state.doubles = 0;
+        return;
+      }
+      if (isDouble) {
+        state.doubles++;
+        if (state.doubles >= 3) {
+          glog(state, `${p.name} выбрасывает 3-й дубль подряд!`);
+          sendToJail(state, pi);
+          state.rolled = true;
+          return;
+        }
+      } else {
+        state.doubles = 0;
+        state.rolled = true;
+      }
+      glog(state, `${p.name} бросает ${d1}:${d2}${isDouble ? ' (дубль — ходит ещё раз)' : ''}`);
+      movePlayer(state, pi, d1 + d2);
+      landOn(state, pi, d1 + d2);
+      if (p.inJail) { state.rolled = true; state.doubles = 0; }
+      break;
+    }
+    case 'buy': {
+      if (state.pendingBuy === null || !isTurn) return;
+      const idx = state.pendingBuy;
+      const t = TILES[idx];
+      if (p.money < t.price) return;
+      p.money -= t.price;
+      state.props[idx].owner = pi;
+      state.pendingBuy = null;
+      glog(state, `${p.name} покупает ${t.name} за ${CUR}${t.price} 🏠`);
+      break;
+    }
+    case 'declineBuy': {
+      if (state.pendingBuy === null || !isTurn) return;
+      glog(state, `${p.name} отказывается от покупки ${TILES[state.pendingBuy].name}`);
+      state.pendingBuy = null;
+      break;
+    }
+    case 'payJail': {
+      if (!isTurn || !p.inJail || state.rolled || p.money < 50) return;
+      p.money -= 50; p.inJail = false; p.jailTurns = 0;
+      glog(state, `${p.name} платит ${CUR}50 и выходит из тюрьмы`);
+      break;
+    }
+    case 'useJailCard': {
+      if (!isTurn || !p.inJail || state.rolled || p.jailCards < 1) return;
+      p.jailCards--; p.inJail = false; p.jailTurns = 0;
+      glog(state, `${p.name} использует карту «Освобождение из тюрьмы»`);
+      break;
+    }
+    case 'build': {
+      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      if (!t || t.type !== 'prop' || ps.owner !== pi || ps.mortgaged || ps.houses >= 5) return;
+      const g = countGroup(state, t.group, pi);
+      if (!g.monopoly) return;
+      // even-build rule + no mortgaged tiles in group
+      const groupTiles = TILES.map((tt, i) => ({ tt, i })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
+      if (groupTiles.some(x => state.props[x.i].mortgaged)) return;
+      const minH = Math.min(...groupTiles.map(x => state.props[x.i].houses));
+      if (ps.houses > minH) return;
+      if (p.money < t.house) return;
+      p.money -= t.house;
+      ps.houses++;
+      glog(state, `${p.name} строит ${ps.houses === 5 ? 'отель 🏨' : 'дом 🏡'} на ${t.name}`);
+      break;
+    }
+    case 'sellHouse': {
+      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      if (!t || t.type !== 'prop' || ps.owner !== pi || ps.houses < 1) return;
+      const groupTiles = TILES.map((tt, i) => ({ tt, i })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
+      const maxH = Math.max(...groupTiles.map(x => state.props[x.i].houses));
+      if (ps.houses < maxH) return;
+      ps.houses--;
+      p.money += Math.floor(t.house / 2);
+      glog(state, `${p.name} продаёт постройку на ${t.name} за ${CUR}${Math.floor(t.house / 2)}`);
+      break;
+    }
+    case 'mortgage': {
+      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      if (!t || !ps || ps.owner !== pi || ps.mortgaged || ps.houses > 0) return;
+      ps.mortgaged = true;
+      p.money += Math.floor(t.price / 2);
+      glog(state, `${p.name} закладывает ${t.name} за ${CUR}${Math.floor(t.price / 2)}`);
+      break;
+    }
+    case 'redeem': {
+      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      if (!t || !ps || ps.owner !== pi || !ps.mortgaged) return;
+      const cost = Math.ceil(t.price / 2 * 1.1);
+      if (p.money < cost) return;
+      p.money -= cost;
+      ps.mortgaged = false;
+      glog(state, `${p.name} выкупает ${t.name} за ${CUR}${cost}`);
+      break;
+    }
+    case 'proposeTrade': {
+      if (state.trade) return;
+      const to = a.to;
+      if (to === pi || !state.players[to] || state.players[to].bankrupt) return;
+      const valid = (props, owner) => props.every(i => state.props[i] && state.props[i].owner === owner && state.props[i].houses === 0);
+      if (!valid(a.giveProps || [], pi) || !valid(a.getProps || [], to)) return;
+      if ((a.giveMoney || 0) > p.money || (a.getMoney || 0) > state.players[to].money) return;
+      state.trade = {
+        from: pi, to,
+        giveMoney: Math.max(0, a.giveMoney || 0), getMoney: Math.max(0, a.getMoney || 0),
+        giveProps: a.giveProps || [], getProps: a.getProps || [],
+      };
+      glog(state, `${p.name} предлагает обмен → ${pName(state, to)}`);
+      break;
+    }
+    case 'acceptTrade': {
+      const tr = state.trade;
+      if (!tr || tr.to !== pi) return;
+      const from = state.players[tr.from], to = state.players[tr.to];
+      if (tr.giveMoney > from.money || tr.getMoney > to.money) { state.trade = null; return; }
+      from.money -= tr.giveMoney; to.money += tr.giveMoney;
+      to.money -= tr.getMoney; from.money += tr.getMoney;
+      tr.giveProps.forEach(i => state.props[i].owner = tr.to);
+      tr.getProps.forEach(i => state.props[i].owner = tr.from);
+      glog(state, `🤝 Обмен между ${from.name} и ${to.name} состоялся!`);
+      state.trade = null;
+      break;
+    }
+    case 'declineTrade': {
+      const tr = state.trade;
+      if (!tr || (tr.to !== pi && tr.from !== pi)) return;
+      glog(state, `Обмен отклонён`);
+      state.trade = null;
+      break;
+    }
+    case 'dismissCard': {
+      state.pendingCard = null;
+      break;
+    }
+    case 'bankrupt': {
+      if (p.money >= 0) return;
+      p.bankrupt = true;
+      Object.values(state.props).forEach(ps => {
+        if (ps.owner === pi) { ps.owner = -1; ps.houses = 0; ps.mortgaged = false; }
+      });
+      glog(state, `💀 ${p.name} объявляет банкротство! Имущество возвращается банку.`);
+      const alive = state.players.map((q, qi) => ({ q, qi })).filter(x => !x.q.bankrupt);
+      if (alive.length === 1) {
+        state.winner = alive[0].qi;
+        glog(state, `🏆 ${alive[0].q.name} побеждает!`);
+      } else if (isTurn) {
+        advanceTurn(state);
+      }
+      break;
+    }
+    case 'endTurn': {
+      if (!isTurn || !state.rolled || state.pendingBuy !== null || p.money < 0) return;
+      advanceTurn(state);
+      break;
+    }
+  }
+}
+
+function advanceTurn(state) {
+  state.rolled = false;
+  state.dice = null;
+  state.doubles = 0;
+  state.pendingBuy = null;
+  let next = state.turn;
+  for (let k = 0; k < state.players.length; k++) {
+    next = (next + 1) % state.players.length;
+    if (!state.players[next].bankrupt) break;
+  }
+  state.turn = next;
+  glog(state, `▶ Ход игрока ${pName(state, next)}`);
+}
