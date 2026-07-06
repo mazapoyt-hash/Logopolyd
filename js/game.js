@@ -31,6 +31,7 @@ function newGameState(lobbyPlayers, settings) {
     chanceDeck: shuffle([...CHANCE_CARDS.keys()]),
     chestDeck: shuffle([...CHEST_CARDS.keys()]),
     log: [],
+    stats: lobbyPlayers.map(() => ({ rentPaid: 0, rentEarned: 0, bought: 0, circles: 0 })),
     events: [],   // ordered animation events, consumed exactly once by clients
     evSeq: 0,
     stateV: 1,    // state version: clients ignore snapshots with stateV <= theirs
@@ -106,6 +107,11 @@ function transfer(state, fromIdx, toIdx, amount) {
   // toIdx === -1 => bank
   if (fromIdx >= 0) state.players[fromIdx].money -= amount;
   if (toIdx >= 0) state.players[toIdx].money += amount;
+  // player-to-player transfers are rent: feed the post-game stats
+  if (state.stats && fromIdx >= 0 && toIdx >= 0 && amount > 0) {
+    state.stats[fromIdx].rentPaid += amount;
+    state.stats[toIdx].rentEarned += amount;
+  }
 }
 
 function movePlayer(state, pi, steps) {
@@ -115,6 +121,7 @@ function movePlayer(state, pi, steps) {
   pushEv(state, { kind: 'move', pi, from: old, to: p.pos, jump: false });
   if (steps > 0 && p.pos < old) {
     p.money += 200;
+    if (state.stats) state.stats[pi].circles++;
     glog(state, `${p.name} проходит GO и получает ${CUR}200`);
   }
 }
@@ -170,6 +177,7 @@ function resolveAuction(state) {
   const w = state.players[au.bidder];
   w.money -= au.high;
   state.props[au.tile].owner = au.bidder;
+  if (state.stats) state.stats[au.bidder].bought++;
   addToPot(state, 0);
   glog(state, `🔨 ${w.name} выигрывает ${TILES[au.tile].name} за ${CUR}${au.high}`);
   state.auction = null;
@@ -365,6 +373,7 @@ function applyAction(state, pi, a) {
       p.money -= t.price;
       state.props[idx].owner = pi;
       state.pendingBuy = null;
+      if (state.stats) state.stats[pi].bought++;
       glog(state, `${p.name} покупает ${t.name} за ${CUR}${t.price} 🏠`);
       maybeOfferMetro(state, pi);
       break;

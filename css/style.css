@@ -572,6 +572,18 @@ body.in-telegram .topbar { padding-top: calc(8px + max(var(--tg-top), var(--safe
 @keyframes timerpulse { 0%,100% { opacity: .7; } 50% { opacity: 1; } }
 .parking-pot { margin-top: 4px; font-size: clamp(11px, 1.7vmin, 14px); font-weight: 700; color: #b6e6c0; }
 
+/* ===== Post-game stats table ===== */
+.stats-table { margin: 12px 0; border-radius: 10px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08); font-size: 12px; }
+.stats-row {
+  display: grid; grid-template-columns: 1.6fr 1fr 0.7fr 1fr 1fr 0.7fr;
+  gap: 4px; padding: 7px 9px; align-items: center; text-align: right;
+}
+.stats-row > span:first-child { text-align: left; display: flex; align-items: center; gap: 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.stats-row:nth-child(even) { background: rgba(255,255,255,0.03); }
+.stats-head { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: #9a927f; background: rgba(255,255,255,0.05); font-weight: 700; }
+.stats-out { opacity: .45; }
+.stats-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+
 /* ===================== LOG (translucent, collapsible) ===================== */
 .log-wrap {
   position: fixed; left: 10px; bottom: calc(78px + var(--safe-b)); z-index: 25;

@@ -15,20 +15,27 @@
 <!-- ================= LOBBY ================= -->
 <div id="lobby" class="screen">
   <div class="lobby-card">
+    <div class="lang-row" id="lang-row" role="group" aria-label="Language">
+      <button class="lang-btn" data-lang="ru">RU</button>
+      <button class="lang-btn" data-lang="uk">UK</button>
+      <button class="lang-btn" data-lang="en">EN</button>
+      <button class="lang-btn" data-lang="de">DE</button>
+    </div>
     <div class="mono-logo">MONOPOLY</div>
-    <div class="lobby-sub">Онлайн-игра с друзьями</div>
+    <div class="lobby-sub" data-i18n="subtitle">Онлайн-игра с друзьями</div>
 
     <div id="lobby-form">
       <div id="tg-greet" class="tg-greet" style="display:none">
         <img id="tg-greet-ava" class="tg-greet-ava" alt="">
-        <div class="tg-greet-txt">Играешь как <b id="tg-greet-name"></b></div>
-        <button id="tg-greet-edit" class="tg-greet-edit" type="button">изменить</button>
+        <div class="tg-greet-txt"><span data-i18n="playingAs">Играешь как</span> <b id="tg-greet-name"></b></div>
+        <button id="tg-greet-edit" class="tg-greet-edit" type="button" data-i18n="edit">изменить</button>
       </div>
-      <input id="inp-name" maxlength="14" placeholder="Твоё имя" autocomplete="off">
-      <button id="btn-create" class="btn gold">Создать комнату</button>
+      <input id="inp-name" maxlength="14" placeholder="Твоё имя" data-i18n-ph="yourName" autocomplete="off">
+      <button id="btn-create" class="btn gold" data-i18n="createRoom">Создать комнату</button>
+      <button id="btn-solo" class="btn" data-i18n="soloPlay">Игра с ботами</button>
       <div class="join-row">
-        <input id="inp-code" maxlength="6" placeholder="КОД" autocomplete="off">
-        <button id="btn-join" class="btn">Войти</button>
+        <input id="inp-code" maxlength="6" placeholder="КОД" data-i18n-ph="code" autocomplete="off">
+        <button id="btn-join" class="btn" data-i18n="join">Войти</button>
       </div>
       <div id="lobby-error" class="lobby-error"></div>
     </div>
@@ -39,12 +46,21 @@
         <button id="btn-settings-back" class="icon-btn" aria-label="Назад">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
         </button>
-        <div class="settings-title">Настройки игры</div>
+        <div class="settings-title" data-i18n="gameSettings">Настройки игры</div>
       </div>
 
       <div class="settings-body">
+        <div class="set-group" id="set-bots-group" style="display:none">
+          <label class="set-label" data-i18n="botOpponents">Соперники-боты</label>
+          <div class="seg" id="set-bots" role="group">
+            <button class="seg-btn is-on" data-v="1">1</button>
+            <button class="seg-btn" data-v="2">2</button>
+            <button class="seg-btn" data-v="3">3</button>
+            <button class="seg-btn" data-v="4">4</button>
+          </div>
+        </div>
         <div class="set-group">
-          <label class="set-label">Стартовые деньги</label>
+          <label class="set-label" data-i18n="startMoney">Стартовые деньги</label>
           <div class="seg" id="set-money" role="group">
             <button class="seg-btn" data-v="1000">₩1000</button>
             <button class="seg-btn is-on" data-v="1500">₩1500</button>
@@ -54,64 +70,64 @@
         </div>
 
         <div class="set-group">
-          <label class="set-label">Таймер хода</label>
+          <label class="set-label" data-i18n="turnTimer">Таймер хода</label>
           <div class="seg" id="set-timer" role="group">
-            <button class="seg-btn is-on" data-v="0">Выкл</button>
+            <button class="seg-btn is-on" data-v="0" data-i18n="off">Выкл</button>
             <button class="seg-btn" data-v="30">30с</button>
             <button class="seg-btn" data-v="60">60с</button>
-            <button class="seg-btn" data-v="120">2 мин</button>
+            <button class="seg-btn" data-v="120">2:00</button>
           </div>
-          <div class="set-hint">Если игрок завис или свернул игру — ход завершится сам.</div>
+          <div class="set-hint" data-i18n="timerHint">Если игрок завис или свернул игру — ход завершится сам.</div>
         </div>
 
         <div class="set-group">
-          <label class="set-label">Тема доски</label>
+          <label class="set-label" data-i18n="boardTheme">Тема доски</label>
           <div class="seg wrap" id="set-theme" role="group">
-            <button class="seg-btn is-on" data-v="classic">Классика</button>
-            <button class="seg-btn" data-v="midnight">Полночь</button>
-            <button class="seg-btn" data-v="sunset">Закат</button>
-            <button class="seg-btn" data-v="mono">Графит</button>
+            <button class="seg-btn is-on" data-v="classic" data-i18n="themeClassic">Классика</button>
+            <button class="seg-btn" data-v="midnight" data-i18n="themeMidnight">Полночь</button>
+            <button class="seg-btn" data-v="sunset" data-i18n="themeSunset">Закат</button>
+            <button class="seg-btn" data-v="mono" data-i18n="themeMono">Графит</button>
           </div>
         </div>
 
         <label class="set-toggle">
-          <div><div class="set-toggle-t">Аукцион при отказе</div><div class="set-hint">Отказался от покупки — клетка уходит с молотка всем игрокам.</div></div>
+          <div><div class="set-toggle-t" data-i18n="auctionT">Аукцион при отказе</div><div class="set-hint" data-i18n="auctionHint">Отказался от покупки — клетка уходит с молотка всем игрокам.</div></div>
           <input type="checkbox" id="set-auction"><span class="switch"></span>
         </label>
 
         <label class="set-toggle">
-          <div><div class="set-toggle-t">Банк на «Бесплатной стоянке»</div><div class="set-hint">Налоги и штрафы копятся в центре. Попал на Free Parking — забрал всё.</div></div>
+          <div><div class="set-toggle-t" data-i18n="potT">Банк на «Бесплатной стоянке»</div><div class="set-hint" data-i18n="potHint">Налоги и штрафы копятся в центре. Попал на Free Parking — забрал всё.</div></div>
           <input type="checkbox" id="set-pot"><span class="switch"></span>
         </label>
 
         <label class="set-toggle">
-          <div><div class="set-toggle-t">Внутренний круг (метро)</div><div class="set-hint">С вокзала можно перепрыгнуть на противоположную сторону доски.</div></div>
+          <div><div class="set-toggle-t" data-i18n="metroT">Внутренний круг (метро)</div><div class="set-hint" data-i18n="metroHint">С вокзала можно перепрыгнуть на противоположную сторону доски.</div></div>
           <input type="checkbox" id="set-metro"><span class="switch"></span>
         </label>
 
         <label class="set-toggle">
-          <div><div class="set-toggle-t">Быстрый режим (3-й кубик)</div><div class="set-hint">Добавляет спид-кубик: больше движения и бонусные ходы.</div></div>
+          <div><div class="set-toggle-t" data-i18n="speedT">Быстрый режим (3-й кубик)</div><div class="set-hint" data-i18n="speedHint">Добавляет спид-кубик: больше движения и бонусные ходы.</div></div>
           <input type="checkbox" id="set-speed"><span class="switch"></span>
         </label>
       </div>
 
-      <button id="btn-create-confirm" class="btn gold">Создать комнату</button>
+      <button id="btn-create-confirm" class="btn gold" data-i18n="createRoom">Создать комнату</button>
     </div>
 
     <div id="lobby-wait" style="display:none">
-      <div class="room-code-label">Код комнаты — отправь друзьям:</div>
+      <div class="room-code-label" data-i18n="roomCodeLabel">Код комнаты — отправь друзьям:</div>
       <div class="room-code-row">
         <div id="room-code" class="room-code">-----</div>
-        <button id="btn-copy" class="btn small">Копировать</button>
+        <button id="btn-copy" class="btn small" data-i18n="copy">Копировать</button>
       </div>
       <button id="btn-invite" class="btn invite-btn" style="display:none">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
-        Пригласить в Telegram
+        <span data-i18n="inviteTg">Пригласить в Telegram</span>
       </button>
-      <div class="players-label">Игроки:</div>
+      <div class="players-label" data-i18n="players">Игроки:</div>
       <div id="lobby-players" class="lobby-players"></div>
-      <button id="btn-start" class="btn gold" style="display:none">Начать игру</button>
-      <div id="wait-note" class="wait-note">Ожидание игроков…</div>
+      <button id="btn-start" class="btn gold" style="display:none" data-i18n="startGame">Начать игру</button>
+      <div id="wait-note" class="wait-note" data-i18n="waitingPlayers">Ожидание игроков…</div>
     </div>
   </div>
 </div>
@@ -130,14 +146,14 @@
 
   <div class="board-scene" id="board3d-wrap">
     <div class="center-hud">
-      <button id="btn-roll" class="btn gold roll-btn" style="display:none">Бросить кубики</button>
+      <button id="btn-roll" class="btn gold roll-btn" style="display:none" data-i18n="rollDice">Бросить кубики</button>
       <button id="btn-end-center" class="btn gold end-center" style="display:none">
-        Завершить ход
+        <span data-i18n="endTurn">Завершить ход</span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15"/><path d="m13 6 6 6-6 6"/></svg>
       </button>
       <div id="jail-actions" class="jail-actions" style="display:none">
-        <button id="btn-payjail" class="btn small">Заплатить ₩50</button>
-        <button id="btn-jailcard" class="btn small" style="display:none">Карта выхода</button>
+        <button id="btn-payjail" class="btn small" data-i18n="pay50">Заплатить ₩50</button>
+        <button id="btn-jailcard" class="btn small" style="display:none" data-i18n="jailCardBtn">Карта выхода</button>
       </div>
       <div id="turn-hint" class="turn-hint"></div>
     </div>
@@ -147,29 +163,38 @@
   </div>
 
   <div id="log-wrap" class="log-wrap">
-    <button id="log-toggle" class="log-toggle" aria-expanded="true">События <span id="log-arrow">▾</span></button>
+    <button id="log-toggle" class="log-toggle" aria-expanded="true"><span data-i18n="events">События</span> <span id="log-arrow">▾</span></button>
     <div id="log" class="log-panel" role="log" aria-live="polite"></div>
+  </div>
+
+  <!-- Quick emoji reactions -->
+  <div id="react-bar" class="react-bar">
+    <button class="react-btn" data-e="😂">😂</button>
+    <button class="react-btn" data-e="😡">😡</button>
+    <button class="react-btn" data-e="😱">😱</button>
+    <button class="react-btn" data-e="👍">👍</button>
+    <button class="react-btn" data-e="💰">💰</button>
   </div>
 
   <div class="actionbar">
     <button class="act-btn" id="act-trade">
       <svg class="act-ico ico-gold" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 7H7m10 0-3-3m3 3-3 3M7 17h10M7 17l3-3m-3 3 3 3"/></svg>
-      ОБМЕН</button>
+      <span data-i18n="actTrade">ОБМЕН</span></button>
     <button class="act-btn" id="act-build">
       <svg class="act-ico ico-green" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 11 12 4l9 7"/><path d="M5 10v10h14V10"/><path d="M10 20v-5h4v5"/></svg>
-      СТРОИТЬ</button>
+      <span data-i18n="actBuild">СТРОИТЬ</span></button>
     <button class="act-btn" id="act-sell">
       <svg class="act-ico ico-red" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h7l9 9-7 7-9-9V4Z"/><circle cx="8" cy="8" r="1.6"/></svg>
-      ПРОДАТЬ</button>
+      <span data-i18n="actSell">ПРОДАТЬ</span></button>
     <button class="act-btn" id="act-mortgage">
       <svg class="act-ico ico-purple" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v8m4.5-8v8m5-8v8m4.5-8v8"/><path d="M3 20h18"/></svg>
-      ЗАЛОГ</button>
+      <span data-i18n="actMortgage">ЗАЛОГ</span></button>
     <button class="act-btn" id="act-redeem">
       <svg class="act-ico ico-teal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21V3Z"/><path d="M9 8h6M9 12h6"/></svg>
-      ВЫКУП</button>
+      <span data-i18n="actRedeem">ВЫКУП</span></button>
     <button class="act-btn end" id="act-end">
       <svg class="act-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h15"/><path d="m13 6 6 6-6 6"/></svg>
-      КОНЕЦ ХОДА</button>
+      <span data-i18n="actEnd">КОНЕЦ ХОДА</span></button>
   </div>
 
   <!-- Chat -->
@@ -203,8 +228,10 @@
 
 <script src="js/vendor/three.min.js"></script>
 <script src="js/tg.js"></script>
+<script src="js/i18n.js"></script>
 <script src="js/data.js"></script>
 <script src="js/game.js"></script>
+<script src="js/bot.js"></script>
 <script src="js/net.js"></script>
 <script src="js/board3d.js"></script>
 <script src="js/ui.js"></script>

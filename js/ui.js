@@ -328,6 +328,32 @@ function setLogCollapsed(collapsed) {
   localStorage.setItem('mono-log', collapsed ? '1' : '0');
 }
 
+// Post-game stats table for the victory modal.
+function statsHTML(s) {
+  if (!s.stats) return '';
+  const propVal = pi => Object.entries(s.props)
+    .filter(([, ps]) => ps.owner === pi)
+    .reduce((sum, [i]) => sum + (TILES[i].price || 0), 0);
+  const rows = s.players.map((p, i) => {
+    const st = s.stats[i] || { rentPaid: 0, rentEarned: 0, bought: 0, circles: 0 };
+    const total = p.bankrupt ? 0 : p.money + propVal(i);
+    return { name: p.name, color: p.color, bankrupt: p.bankrupt, total, st };
+  }).sort((a, b) => b.total - a.total);
+  return `<div class="stats-table">
+    <div class="stats-row stats-head">
+      <span>Игрок</span><span>Итог</span><span>Клеток</span><span>Аренда +</span><span>Аренда −</span><span>Кругов</span>
+    </div>
+    ${rows.map(r => `<div class="stats-row${r.bankrupt ? ' stats-out' : ''}">
+      <span><i class="stats-dot" style="background:${PLAYER_COLORS[r.color].solid}"></i>${esc(r.name)}</span>
+      <span>${r.bankrupt ? '💀' : CUR + r.total}</span>
+      <span>${r.st.bought}</span>
+      <span>${CUR}${r.st.rentEarned}</span>
+      <span>${CUR}${r.st.rentPaid}</span>
+      <span>${r.st.circles}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 // ---------- Modals ----------
 function renderModals() {
   const s = NET.state;
@@ -337,9 +363,11 @@ function renderModals() {
   if (s.winner !== null) {
     const w = s.players[s.winner];
     confettiBurst();
+    clearSession(); // game is over: never auto-resume into a finished game
     openModal(`<div class="modal-title">🏆 ПОБЕДА!</div>
       <div class="card-body big">${esc(w.name)} — монополист!</div>
-      <button class="btn gold" onclick="location.reload()">Новая игра</button>`);
+      ${statsHTML(s)}
+      <button class="btn gold" onclick="leaveRoom()">Новая игра</button>`);
     return;
   }
 
