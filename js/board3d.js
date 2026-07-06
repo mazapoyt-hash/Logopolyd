@@ -287,7 +287,9 @@ const B3D = (() => {
 
   // ---------- camera ----------
   function overviewFor(flat) {
-    const aspect = container.clientWidth / Math.max(1, container.clientHeight);
+    // guard: container may be 0x0 while the game screen is hidden
+    let aspect = container.clientWidth / Math.max(1, container.clientHeight);
+    if (!isFinite(aspect) || aspect <= 0.05) aspect = 1.7;
     const vf = THREE.MathUtils.degToRad(camera.fov) / 2;
     const hf = Math.atan(Math.tan(vf) * aspect);
     const dist = 7.6 / Math.tan(Math.min(vf, hf));
@@ -434,10 +436,16 @@ const B3D = (() => {
     resize() {
       if (!renderer) return;
       const w = container.clientWidth, h = container.clientHeight;
+      if (!w || !h) return; // hidden: keep previous valid state
       renderer.setSize(w, h);
-      camera.aspect = w / Math.max(1, h);
+      camera.aspect = w / h;
       camera.updateProjectionMatrix();
       if (cam.mode === 'overview') goOverview();
+      // recover if camera ever got into an invalid state
+      if (!isFinite(camera.position.x) || !isFinite(camera.position.y)) {
+        camera.position.copy(cam.pos);
+        curLook.copy(cam.look);
+      }
     },
 
     syncPlayers(players, myIdx) {
@@ -590,6 +598,15 @@ const B3D = (() => {
     toggleFlat() {
       cam.flat = !cam.flat;
       goOverview();
+    },
+
+    _dbg() {
+      return {
+        camPos: camera.position.toArray(), camLook: curLook.toArray(),
+        targetPos: cam.pos.toArray(), children: scene.children.length,
+        canvases: container.querySelectorAll('canvas').length,
+        size: [renderer.domElement.width, renderer.domElement.height],
+      };
     },
   };
 })();
