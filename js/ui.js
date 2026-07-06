@@ -297,6 +297,10 @@ function renderCenter() {
     const warn = left <= 10 ? ' timer-warn' : '';
     hint += `<div class="turn-timer${warn}">⏱ ${left}с</div>`;
   }
+  // free-parking pot indicator
+  if (s.settings && s.settings.freeParkingPot && s.parkingPot > 0) {
+    hint += `<div class="parking-pot">🅿️ Банк стоянки: ${CUR}${s.parkingPot}</div>`;
+  }
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];

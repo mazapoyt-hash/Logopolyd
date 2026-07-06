@@ -163,6 +163,7 @@ function resolveAuction(state) {
   if (au.bidder === -1) {
     glog(state, `Аукцион завершён без ставок — ${TILES[au.tile].name} остаётся у банка`);
     state.auction = null;
+    maybeOfferMetro(state, state.turn);
     return;
   }
   // winner is the top bidder (or the last one left who bid)
@@ -172,6 +173,18 @@ function resolveAuction(state) {
   addToPot(state, 0);
   glog(state, `🔨 ${w.name} выигрывает ${TILES[au.tile].name} за ${CUR}${au.high}`);
   state.auction = null;
+  maybeOfferMetro(state, state.turn);
+}
+
+// Inner-circle metro: offer a one-time jump to the opposite station, but only
+// once the tile is fully settled (no pending buy/auction) and not already used.
+function maybeOfferMetro(state, pi) {
+  const p = state.players[pi];
+  if (state.settings && state.settings.innerCircle && !state.metroUsed
+      && METRO_TILES[p.pos] !== undefined
+      && state.pendingBuy === null && !state.auction && !state.pendingMetro) {
+    state.pendingMetro = { from: p.pos, to: METRO_TILES[p.pos] };
+  }
 }
 
 function landOn(state, pi, diceSum, rentMult = 1, skipMetro = false) {
@@ -193,11 +206,7 @@ function landOn(state, pi, diceSum, rentMult = 1, skipMetro = false) {
         transfer(state, pi, ps.owner, rent);
         glog(state, `${p.name} платит ${CUR}${rent} аренды → ${pName(state, ps.owner)} (${t.name})`);
       }
-      // inner-circle metro: offer a jump to the opposite station
-      if (!skipMetro && state.settings && state.settings.innerCircle
-          && METRO_TILES[idx] !== undefined && state.pendingBuy === null && !state.auction) {
-        state.pendingMetro = { from: idx, to: METRO_TILES[idx] };
-      }
+      if (!skipMetro) maybeOfferMetro(state, pi); // inner-circle shortcut
       break;
     }
     case 'tax':
@@ -357,6 +366,7 @@ function applyAction(state, pi, a) {
       state.props[idx].owner = pi;
       state.pendingBuy = null;
       glog(state, `${p.name} покупает ${t.name} за ${CUR}${t.price} 🏠`);
+      maybeOfferMetro(state, pi);
       break;
     }
     case 'declineBuy': {
@@ -365,6 +375,7 @@ function applyAction(state, pi, a) {
       glog(state, `${p.name} отказывается от покупки ${TILES[idx].name}`);
       state.pendingBuy = null;
       if (state.settings && state.settings.auction) startAuction(state, idx);
+      else maybeOfferMetro(state, pi);
       break;
     }
     case 'bid': {
@@ -390,6 +401,7 @@ function applyAction(state, pi, a) {
       if (!state.pendingMetro || !isTurn) return;
       const from = p.pos, to = state.pendingMetro.to;
       state.pendingMetro = null;
+      state.metroUsed = true;
       p.pos = to;
       pushEv(state, { kind: 'move', pi, from, to, jump: true });
       glog(state, `🚇 ${p.name} едет на метро → ${TILES[to].name}`);
@@ -399,6 +411,7 @@ function applyAction(state, pi, a) {
     case 'metroStay': {
       if (!state.pendingMetro || !isTurn) return;
       state.pendingMetro = null;
+      state.metroUsed = true;
       glog(state, `${p.name} остаётся на вокзале`);
       break;
     }
@@ -528,6 +541,7 @@ function advanceTurn(state) {
   state.doubles = 0;
   state.pendingBuy = null;
   state.pendingMetro = null;
+  state.metroUsed = false;
   let next = state.turn;
   for (let k = 0; k < state.players.length; k++) {
     next = (next + 1) % state.players.length;
