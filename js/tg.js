@@ -9,8 +9,8 @@ const TG = (() => {
 
   // --- CONFIGURE THESE once you create the bot + mini app in @BotFather ---
   // Example: bot = 'monopoly_play_bot', app = 'game'  =>  t.me/monopoly_play_bot/game
-  const BOT_USERNAME = 'YOUR_BOT';   // <-- замени на username своего бота
-  const APP_SHORTNAME = 'game';      // <-- short name мини-аппа из BotFather
+  const BOT_USERNAME = 'Monopolyd_bot';   // t.me/Monopolyd_bot/game
+  const APP_SHORTNAME = 'game';           // short name мини-аппа из BotFather
 
   function displayName() {
     if (!user) return '';
