@@ -38,7 +38,7 @@ const snd = (() => {
 })();
 
 // ---------- FX engine: token movement, 3D dice, cinematic camera ----------
-const fxq = { chain: Promise.resolve(), disp: null, lastSeq: 0, money: null };
+  const fxq = { chain: Promise.resolve(), disp: null, lastSeq: 0, money: null, dispMoney: null };
 let fxBusy = 0;
 function queueFx(fn) {
   fxBusy++;
@@ -78,26 +78,34 @@ function renderFx(s) {
     // first state: snap everything into place, skip past all existing events
     fxq.disp = s.players.map(p => p.pos);
     fxq.money = s.players.map(p => p.money);
+    fxq.dispMoney = s.players.map(p => p.money);
     fxq.lastSeq = s.evSeq || 0;
     placeAllTokens(s);
     setDice(s.dice);
     return;
   }
-  // money change chime + floating delta over the plaque
+  // Detect balance changes now (so re-broadcasts don't double-count),
+  // but hold back the visible update until the token has actually landed.
+  const moneyChanges = [];
   if (fxq.money) {
-    let changed = false;
-    const me = myPlayerIndex();
     s.players.forEach((p, i) => {
       if (fxq.money[i] !== undefined && p.money !== fxq.money[i]) {
-        changed = true;
-        const delta = p.money - fxq.money[i];
-        flashMoney(i, delta);
-        if (i === me) TG.haptic(delta < 0 ? 'warning' : 'success');
+        moneyChanges.push({ i, delta: p.money - fxq.money[i], to: p.money });
       }
     });
-    if (changed) snd.cash();
   }
   fxq.money = s.players.map(p => p.money);
+
+  const commitMoney = () => {
+    const me = myPlayerIndex();
+    moneyChanges.forEach(({ i, delta, to }) => {
+      fxq.dispMoney[i] = to;
+      flashMoney(i, delta);
+      if (i === me) TG.haptic(delta < 0 ? 'warning' : 'success');
+    });
+    snd.cash();
+    renderPlaques(); // reveal the new balance only now
+  };
 
   // Consume new animation events exactly once, strictly in order.
   // Re-broadcasts of the same state are harmless: seq dedup skips them.
@@ -116,6 +124,12 @@ function renderFx(s) {
       });
     }
   });
+
+  // Apply balance changes after the queued animation (landing), or now if idle.
+  if (moneyChanges.length) {
+    if (evs.length || fxBusy > 0) queueFx(async () => commitMoney());
+    else commitMoney();
+  }
 
   if (fxBusy === 0) {
     // idle: keep display state in sync (resize, missed snapshots)
@@ -239,12 +253,14 @@ function renderPlaques() {
   $('#plaques').innerHTML = s.players.map((p, i) => {
     const col = PLAYER_COLORS[p.color];
     const owned = Object.keys(s.props).map(Number).filter(k => s.props[k].owner === i).length;
+    // show the lagging displayed balance so money updates on landing, not on roll
+    const shownMoney = (fxq.dispMoney && fxq.dispMoney[i] !== undefined) ? fxq.dispMoney[i] : p.money;
     return `<div id="plaque-${i}" class="plaque ${i === s.turn ? 'active' : ''} ${p.bankrupt ? 'dead' : ''}"
       role="button" tabindex="0" title="Показать участки" onclick="showPlayerHoldings(${i})"
       style="background:linear-gradient(90deg,${col.grad[0]},${col.grad[1]})">
       <div class="plaque-ava"><img src="${avaSrc(p)}" alt="" onerror="this.src='assets/ava_${p.color}.png'"></div>
       <div class="plaque-info"><div class="plaque-name">${esc(p.name)}${p.peerId === NET.myPeerId ? ' (ты)' : ''}</div>
-      <div class="plaque-money">${CUR}${p.money}${p.inJail ? ' 🚔' : ''}${p.jailCards ? ' 🎫'.repeat(p.jailCards) : ''}</div></div>
+      <div class="plaque-money">${CUR}${shownMoney}${p.inJail ? ' 🚔' : ''}${p.jailCards ? ' 🎫'.repeat(p.jailCards) : ''}</div></div>
       <div class="plaque-badge">${owned}</div>
     </div>`;
   }).join('');

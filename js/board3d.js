@@ -213,7 +213,7 @@ const B3D = (() => {
   const DIE_UP = { 1: [0, 0, 0], 6: [Math.PI, 0, 0], 2: [0, 0, Math.PI / 2], 5: [0, 0, -Math.PI / 2], 3: [-Math.PI / 2, 0, 0], 4: [Math.PI / 2, 0, 0] };
   function buildDie() {
     const mats = [2, 5, 1, 6, 3, 4].map(v => new THREE.MeshStandardMaterial({ map: pipTexture(v), roughness: 0.35, metalness: 0.05 }));
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), mats);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), mats);
     m.castShadow = true;
     m.visible = false;
     return m;
@@ -663,11 +663,11 @@ const B3D = (() => {
 
     async rollDice(vals) {
       // toss both dice onto the center of the board
-      const targets = [new THREE.Vector3(-0.55, 0, 0.45), new THREE.Vector3(0.55, 0, 0.62)];
+      const targets = [new THREE.Vector3(-0.78, 0, 0.5), new THREE.Vector3(0.78, 0, 0.7)];
       const proms = dice.map((d, i) => {
         d.visible = true;
-        const start = new THREE.Vector3((i ? 1.6 : -1.6), TOP + 2.6, 2.6);
-        const end = targets[i].clone().setY(TOP + 0.17);
+        const start = new THREE.Vector3((i ? 1.9 : -1.9), TOP + 2.8, 2.8);
+        const end = targets[i].clone().setY(TOP + 0.29);
         const [rx, ry, rz] = DIE_UP[vals[i]];
         const spinX = rx + Math.PI * 2 * (2 + i), spinZ = rz + Math.PI * 2 * 2;
         const spinY = ry + (Math.random() - 0.5) * 0.6;
@@ -686,7 +686,7 @@ const B3D = (() => {
     setDice(vals) {
       if (!dice.length) return;
       if (!vals) { dice.forEach(d => d.visible = false); return; }
-      const targets = [new THREE.Vector3(-0.55, TOP + 0.17, 0.45), new THREE.Vector3(0.55, TOP + 0.17, 0.62)];
+      const targets = [new THREE.Vector3(-0.78, TOP + 0.29, 0.5), new THREE.Vector3(0.78, TOP + 0.29, 0.7)];
       dice.forEach((d, i) => {
         d.visible = true;
         d.position.copy(targets[i]);
