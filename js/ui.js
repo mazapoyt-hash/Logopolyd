@@ -594,6 +594,7 @@ document.addEventListener('DOMContentLoaded', () => {
   NET.onChat = addChat;
 
   // ---- Telegram Mini App: expand, theme, auto name/avatar, deep-link invites ----
+  let inviteCode = '';
   TG.init();
   if (TG.inside) {
     document.body.classList.add('in-telegram');
@@ -608,9 +609,9 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#tg-greet').style.display = 'flex';
       $('#inp-name').style.display = 'none';
     }
-    // opened via invite link t.me/bot/app?startapp=CODE -> prefill the join code
+    // opened via invite link t.me/bot/app?startapp=CODE
     const sp = TG.startParam();
-    if (sp && /^[A-Z0-9]{6}$/i.test(sp)) $('#inp-code').value = sp.toUpperCase();
+    if (sp && /^[A-Z0-9]{6}$/i.test(sp)) inviteCode = sp.toUpperCase();
   }
   // let the user reveal the name field to change the auto-filled Telegram name
   $('#tg-greet-edit').addEventListener('click', () => {
@@ -619,11 +620,49 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#inp-name').focus();
   });
 
+  // Join a room from an invite link. Used both for a fresh open and as a
+  // fallback when a stale session fails to reconnect.
+  function autoJoinInvite(code) {
+    const name = $('#inp-name').value.trim();
+    $('#inp-code').value = code;
+    if (!name) { // no auto name yet: show the lobby with the code prefilled
+      $('#lobby-wait').style.display = 'none';
+      $('#lobby-form').style.display = 'block';
+      $('#lobby-error').textContent = '';
+      return;
+    }
+    $('#lobby-form').style.display = 'none';
+    $('#lobby-wait').style.display = 'block';
+    $('#wait-note').textContent = 'Подключение к игре…';
+    joinGame(name, code, err => {
+      if (err) {
+        $('#lobby-wait').style.display = 'none';
+        $('#lobby-form').style.display = 'block';
+        $('#lobby-error').textContent = err.message;
+        return;
+      }
+      $('#lobby-error').textContent = '';
+      renderLobby();
+    });
+  }
+
+  // An invite deep-link takes priority over a stale saved session: if we were
+  // opened via an invite for a different room than the saved one, that session
+  // is stale (e.g. the previous host already left), so drop it instead of
+  // spinning forever trying to reconnect to a dead room.
+  if (inviteCode) {
+    const ses = loadSession();
+    if (!ses || ses.roomCode !== inviteCode) clearSession();
+    $('#inp-code').value = inviteCode;
+  }
+
   // auto-resume a saved session (page was refreshed mid-game)
   const resuming = tryResume((err) => {
     if (err) {
+      $('#lobby-wait').style.display = 'none';
       $('#lobby-form').style.display = 'block';
       $('#lobby-error').textContent = '';
+      if (inviteCode) autoJoinInvite(inviteCode); // hop into the invited room
       return;
     }
     render();
@@ -633,6 +672,8 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#lobby-error').textContent = '';
     $('#lobby-wait').style.display = 'block';
     $('#wait-note').textContent = 'Переподключение к игре…';
+  } else if (inviteCode) {
+    autoJoinInvite(inviteCode); // fresh open from an invite link
   }
 
   $('#btn-create').addEventListener('click', () => {
