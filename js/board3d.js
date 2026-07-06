@@ -24,6 +24,8 @@ const B3D = (() => {
   let dice = [];              // 2 die meshes
   let housesGroup, decks = {};
   let lastPropsKey = '';
+  let curTheme = BOARD_THEMES.classic;   // active board skin
+  let lastState = null;                  // last state drawn (for theme re-render)
   const anims = [];           // active tweens
   const cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), mode: 'overview', followPi: -1, flat: false };
   let curLook = new THREE.Vector3(0, 0, 0);
@@ -66,14 +68,15 @@ const B3D = (() => {
   }
 
   function drawBoardTexture(state) {
+    if (state) lastState = state;
     const ctx = texCtx;
-    // mint field (deep enough to survive studio lighting)
-    ctx.fillStyle = '#9cc7aa';
+    // themed field color (deep enough to survive studio lighting)
+    ctx.fillStyle = curTheme.field;
     ctx.fillRect(0, 0, TEX, TEX);
     // darkening vignette only (no white center, it washes out under light)
     const vg = ctx.createRadialGradient(TEX / 2, TEX / 2, TEX * 0.2, TEX / 2, TEX / 2, TEX * 0.72);
     vg.addColorStop(0, 'rgba(0,0,0,0)');
-    vg.addColorStop(1, 'rgba(25,65,40,0.22)');
+    vg.addColorStop(1, curTheme.vignette);
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, TEX, TEX);
 
@@ -82,7 +85,7 @@ const B3D = (() => {
       const px = (R.x - R.w / 2 + HALF) * K, py = (R.z - R.d / 2 + HALF) * K;
       const pw = R.w * K, ph = R.d * K;
       // tile bg + border
-      ctx.fillStyle = '#e9e2c8';
+      ctx.fillStyle = curTheme.paper;
       ctx.fillRect(px, py, pw, ph);
       ctx.strokeStyle = '#2a2a26';
       ctx.lineWidth = 4;
@@ -195,15 +198,15 @@ const B3D = (() => {
   }
 
   // ---------- dice ----------
-  function pipTexture(n) {
+  function pipTexture(n, speed) {
     const c = document.createElement('canvas'); c.width = c.height = 128;
     const x = c.getContext('2d');
-    x.fillStyle = '#faf7ef'; x.fillRect(0, 0, 128, 128);
+    x.fillStyle = speed ? '#e8ca4e' : '#faf7ef'; x.fillRect(0, 0, 128, 128);
     x.strokeStyle = 'rgba(0,0,0,0.12)'; x.lineWidth = 6; x.strokeRect(3, 3, 122, 122);
     const P = { 1: [[64, 64]], 2: [[36, 36], [92, 92]], 3: [[32, 32], [64, 64], [96, 96]],
       4: [[36, 36], [92, 36], [36, 92], [92, 92]], 5: [[34, 34], [94, 34], [64, 64], [34, 94], [94, 94]],
       6: [[36, 30], [92, 30], [36, 64], [92, 64], [36, 98], [92, 98]] };
-    x.fillStyle = '#1c1a16';
+    x.fillStyle = speed ? '#3a2c05' : '#1c1a16';
     P[n].forEach(([px, py]) => { x.beginPath(); x.arc(px, py, 11, 0, 7); x.fill(); });
     const t = new THREE.CanvasTexture(c);
     t.encoding = THREE.sRGBEncoding;
@@ -211,8 +214,13 @@ const B3D = (() => {
   }
   // materials order [+x,-x,+y,-y,+z,-z] -> values [2,5,1,6,3,4]
   const DIE_UP = { 1: [0, 0, 0], 6: [Math.PI, 0, 0], 2: [0, 0, Math.PI / 2], 5: [0, 0, -Math.PI / 2], 3: [-Math.PI / 2, 0, 0], 4: [Math.PI / 2, 0, 0] };
-  function buildDie() {
-    const mats = [2, 5, 1, 6, 3, 4].map(v => new THREE.MeshStandardMaterial({ map: pipTexture(v), roughness: 0.35, metalness: 0.05 }));
+  // resting spots for 2 or 3 dice, centered on the board
+  function diceTargets(n) {
+    if (n >= 3) return [new THREE.Vector3(-1.05, 0, 0.5), new THREE.Vector3(0, 0, 0.62), new THREE.Vector3(1.05, 0, 0.74)];
+    return [new THREE.Vector3(-0.78, 0, 0.5), new THREE.Vector3(0.78, 0, 0.7)];
+  }
+  function buildDie(speed) {
+    const mats = [2, 5, 1, 6, 3, 4].map(v => new THREE.MeshStandardMaterial({ map: pipTexture(v, speed), roughness: 0.35, metalness: speed ? 0.2 : 0.05 }));
     const m = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), mats);
     m.castShadow = true;
     m.visible = false;
@@ -554,7 +562,7 @@ const B3D = (() => {
       scene.add(decks.chest);
 
       // dice
-      dice = [buildDie(), buildDie()];
+      dice = [buildDie(false), buildDie(false), buildDie(true)];
       dice.forEach(d => scene.add(d));
 
       housesGroup = new THREE.Group();
@@ -662,13 +670,15 @@ const B3D = (() => {
     },
 
     async rollDice(vals) {
-      // toss both dice onto the center of the board
-      const targets = [new THREE.Vector3(-0.78, 0, 0.5), new THREE.Vector3(0.78, 0, 0.7)];
-      const proms = dice.map((d, i) => {
+      // 2 or 3 dice; the 3rd (gold) is the speed die when fast mode is on
+      const targets = diceTargets(vals.length);
+      dice.forEach((d, i) => { if (i >= vals.length) d.visible = false; });
+      const proms = vals.map((v, i) => {
+        const d = dice[i];
         d.visible = true;
-        const start = new THREE.Vector3((i ? 1.9 : -1.9), TOP + 2.8, 2.8);
+        const start = new THREE.Vector3((i - (vals.length - 1) / 2) * 1.9, TOP + 2.8, 2.8);
         const end = targets[i].clone().setY(TOP + 0.29);
-        const [rx, ry, rz] = DIE_UP[vals[i]];
+        const [rx, ry, rz] = DIE_UP[v];
         const spinX = rx + Math.PI * 2 * (2 + i), spinZ = rz + Math.PI * 2 * 2;
         const spinY = ry + (Math.random() - 0.5) * 0.6;
         return tween(920, k => {
@@ -686,16 +696,20 @@ const B3D = (() => {
     setDice(vals) {
       if (!dice.length) return;
       if (!vals) { dice.forEach(d => d.visible = false); return; }
-      const targets = [new THREE.Vector3(-0.78, TOP + 0.29, 0.5), new THREE.Vector3(0.78, TOP + 0.29, 0.7)];
+      const targets = diceTargets(vals.length);
       dice.forEach((d, i) => {
+        if (i >= vals.length) { d.visible = false; return; }
         d.visible = true;
-        d.position.copy(targets[i]);
+        d.position.copy(targets[i].clone().setY(TOP + 0.29));
         d.rotation.set(...DIE_UP[vals[i]]);
       });
     },
 
     updateProps(state) {
-      const key = JSON.stringify(state.props) + '|' + state.players.map(p => p.color + (p.bankrupt ? 'x' : '')).join(',');
+      // apply the room's chosen board skin
+      const themeName = (state.settings && state.settings.theme) || 'classic';
+      curTheme = BOARD_THEMES[themeName] || BOARD_THEMES.classic;
+      const key = themeName + '|' + JSON.stringify(state.props) + '|' + state.players.map(p => p.color + (p.bankrupt ? 'x' : '')).join(',');
       if (key === lastPropsKey) return;
       lastPropsKey = key;
       drawBoardTexture(state);
@@ -726,6 +740,13 @@ const B3D = (() => {
           }
         }
       });
+    },
+
+    // live preview of a board skin from the lobby settings screen
+    previewTheme(name) {
+      curTheme = BOARD_THEMES[name] || BOARD_THEMES.classic;
+      lastPropsKey = ''; // force a redraw on next updateProps
+      if (texCtx) drawBoardTexture(lastState);
     },
 
     deckScreenRect(isChance) {

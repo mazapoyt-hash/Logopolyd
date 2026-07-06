@@ -94,3 +94,26 @@ const CHEST_CARDS = [
 ];
 
 const CUR = '₩';
+
+// ===== Game settings (chosen by the host before creating a room) =====
+const DEFAULT_SETTINGS = {
+  startMoney: 1500,     // starting cash for everyone
+  turnTimer: 0,         // seconds per turn, 0 = off (auto-ends stalled turns)
+  auction: false,       // declined/unaffordable tiles go to auction
+  freeParkingPot: false,// taxes & fines pile in the center, claimed on Free Parking
+  innerCircle: false,   // metro shortcut: jump across the board from metro tiles
+  speedDie: false,      // extra speed die for faster games
+  theme: 'classic',     // board skin
+};
+
+// Board skins: field + tile paper colors used by the 3D board texture.
+const BOARD_THEMES = {
+  classic: { name: 'Классика',  field: '#9cc7aa', vignette: 'rgba(25,65,40,0.22)', paper: '#e9e2c8', ink: '#1d1c18' },
+  midnight:{ name: 'Полночь',   field: '#20293f', vignette: 'rgba(0,0,0,0.42)',    paper: '#e7ebf5', ink: '#1a2036' },
+  sunset:  { name: 'Закат',     field: '#e7b489', vignette: 'rgba(120,50,20,0.28)',paper: '#fbefdd', ink: '#3a2415' },
+  mono:    { name: 'Графит',    field: '#c9ccce', vignette: 'rgba(20,20,25,0.3)',  paper: '#f2f3f4', ink: '#1c1e20' },
+};
+
+// Metro tiles for the inner-circle shortcut (mid-side, one per edge).
+// Landing here lets you hop to the metro tile on the opposite side.
+const METRO_TILES = { 5: 25, 15: 35, 25: 5, 35: 15 };

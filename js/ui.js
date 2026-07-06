@@ -1,5 +1,6 @@
 // ===== UI rendering & interaction =====
 const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
 const TOKENS = ['🎩', '🚗', '🐕', '⛵', '👢', '🐈'];
 const TOKEN_IMGS = ['tok_hat', 'tok_car', 'tok_dog', 'tok_ship', 'tok_boot', 'tok_cat'];
 let unreadChat = 0;
@@ -276,7 +277,7 @@ function renderCenter() {
   const myTurn = me === s.turn && !s.players[me]?.bankrupt && s.winner === null;
   const p = s.players[s.turn];
 
-  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && fxBusy === 0;
+  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && !s.pendingMetro && !s.auction && fxBusy === 0;
   $('#btn-roll').style.display = canRoll ? 'inline-block' : 'none';
 
   const showJail = myTurn && p.inJail && !s.rolled;
@@ -290,10 +291,20 @@ function renderCenter() {
   if (s.winner !== null) hint = `🏆 Победитель: ${s.players[s.winner].name}!`;
   else if (myTurn) hint = s.rolled ? 'Заверши ход или управляй имуществом' : (p.inJail ? 'Ты в тюрьме: плати, используй карту или бросай на дубль' : 'Твой ход!');
   else hint = `Ходит ${esc(p.name)}…`;
+  // turn timer countdown
+  if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0) {
+    const left = Math.max(0, Math.ceil((s.turnDeadline - Date.now()) / 1000));
+    const warn = left <= 10 ? ' timer-warn' : '';
+    hint += `<div class="turn-timer${warn}">⏱ ${left}с</div>`;
+  }
+  // free-parking pot indicator
+  if (s.settings && s.settings.freeParkingPot && s.parkingPot > 0) {
+    hint += `<div class="parking-pot">🅿️ Банк стоянки: ${CUR}${s.parkingPot}</div>`;
+  }
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];
-  const canEnd = myTurn && s.rolled && s.pendingBuy === null && meP && meP.money >= 0 && fxBusy === 0;
+  const canEnd = myTurn && s.rolled && s.pendingBuy === null && !s.pendingMetro && !s.auction && meP && meP.money >= 0 && fxBusy === 0;
   $('#act-end').disabled = !canEnd;
   // prominent central end-turn button so it's not forgotten
   $('#btn-end-center').style.display = canEnd ? 'inline-flex' : 'none';
@@ -342,6 +353,47 @@ function renderModals() {
     return;
   }
   if (cardFx.visible) hideCardFx();
+
+  if (s.auction) {
+    const au = s.auction;
+    const t = TILES[au.tile];
+    const iAmIn = me >= 0 && !s.players[me].bankrupt && !au.passed.includes(me);
+    const highTxt = au.bidder >= 0 ? `${CUR}${au.high} — ${esc(s.players[au.bidder].name)}` : 'ставок нет';
+    let controls = '';
+    if (iAmIn) {
+      const step = au.high < 50 ? 10 : au.high < 200 ? 25 : 50;
+      const next = au.high + step;
+      const canBid = s.players[me].money >= next;
+      controls = `<div class="modal-btns">
+        <button class="btn gold" ${canBid ? '' : 'disabled'} onclick="sendAction({type:'bid',amount:${next}})">Ставка ${CUR}${next}</button>
+        <button class="btn" onclick="sendAction({type:'passBid'})">Пас</button>
+      </div>
+      <div class="wait-note">Твой баланс: ${CUR}${s.players[me].money}</div>`;
+    } else {
+      controls = `<div class="wait-note">${au.passed.includes(me) ? 'Ты спасовал. ' : ''}Идут торги…</div>`;
+    }
+    openModal(`<div class="modal-title">🔨 Аукцион</div>
+      <div class="deed">${deedHTML(au.tile)}</div>
+      <div class="card-body">Текущая ставка: <b>${highTxt}</b></div>
+      ${controls}`);
+    return;
+  }
+
+  if (s.pendingMetro) {
+    const mto = s.pendingMetro.to;
+    if (me === s.turn) {
+      openModal(`<div class="modal-title">🚇 Метро</div>
+        <div class="card-body">Перепрыгнуть на противоположную сторону поля — <b>${esc(TILES[mto].name)}</b>?</div>
+        <div class="modal-btns">
+          <button class="btn gold" onclick="sendAction({type:'metroJump'})">Ехать 🚇</button>
+          <button class="btn" onclick="sendAction({type:'metroStay'})">Остаться</button>
+        </div>`);
+    } else {
+      openModal(`<div class="modal-title">🚇 Метро</div>
+        <div class="card-body">${esc(s.players[s.turn].name)} решает, ехать ли на метро…</div>`);
+    }
+    return;
+  }
 
   if (s.pendingBuy !== null) {
     const t = TILES[s.pendingBuy];
@@ -593,7 +645,17 @@ document.addEventListener('DOMContentLoaded', () => {
   NET.onUpdate = render;
   NET.onChat = addChat;
 
+  // 1s ticker so the turn-timer countdown stays live between state updates
+  setInterval(() => {
+    const s = NET.state;
+    if (s && s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0
+        && $('#game').style.display !== 'none') {
+      renderCenter();
+    }
+  }, 1000);
+
   // ---- Telegram Mini App: expand, theme, auto name/avatar, deep-link invites ----
+  let inviteCode = '';
   TG.init();
   if (TG.inside) {
     document.body.classList.add('in-telegram');
@@ -608,9 +670,9 @@ document.addEventListener('DOMContentLoaded', () => {
       $('#tg-greet').style.display = 'flex';
       $('#inp-name').style.display = 'none';
     }
-    // opened via invite link t.me/bot/app?startapp=CODE -> prefill the join code
+    // opened via invite link t.me/bot/app?startapp=CODE
     const sp = TG.startParam();
-    if (sp && /^[A-Z0-9]{6}$/i.test(sp)) $('#inp-code').value = sp.toUpperCase();
+    if (sp && /^[A-Z0-9]{6}$/i.test(sp)) inviteCode = sp.toUpperCase();
   }
   // let the user reveal the name field to change the auto-filled Telegram name
   $('#tg-greet-edit').addEventListener('click', () => {
@@ -619,11 +681,49 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#inp-name').focus();
   });
 
+  // Join a room from an invite link. Used both for a fresh open and as a
+  // fallback when a stale session fails to reconnect.
+  function autoJoinInvite(code) {
+    const name = $('#inp-name').value.trim();
+    $('#inp-code').value = code;
+    if (!name) { // no auto name yet: show the lobby with the code prefilled
+      $('#lobby-wait').style.display = 'none';
+      $('#lobby-form').style.display = 'block';
+      $('#lobby-error').textContent = '';
+      return;
+    }
+    $('#lobby-form').style.display = 'none';
+    $('#lobby-wait').style.display = 'block';
+    $('#wait-note').textContent = 'Подключение к игре…';
+    joinGame(name, code, err => {
+      if (err) {
+        $('#lobby-wait').style.display = 'none';
+        $('#lobby-form').style.display = 'block';
+        $('#lobby-error').textContent = err.message;
+        return;
+      }
+      $('#lobby-error').textContent = '';
+      renderLobby();
+    });
+  }
+
+  // An invite deep-link takes priority over a stale saved session: if we were
+  // opened via an invite for a different room than the saved one, that session
+  // is stale (e.g. the previous host already left), so drop it instead of
+  // spinning forever trying to reconnect to a dead room.
+  if (inviteCode) {
+    const ses = loadSession();
+    if (!ses || ses.roomCode !== inviteCode) clearSession();
+    $('#inp-code').value = inviteCode;
+  }
+
   // auto-resume a saved session (page was refreshed mid-game)
   const resuming = tryResume((err) => {
     if (err) {
+      $('#lobby-wait').style.display = 'none';
       $('#lobby-form').style.display = 'block';
       $('#lobby-error').textContent = '';
+      if (inviteCode) autoJoinInvite(inviteCode); // hop into the invited room
       return;
     }
     render();
@@ -633,14 +733,63 @@ document.addEventListener('DOMContentLoaded', () => {
     $('#lobby-error').textContent = '';
     $('#lobby-wait').style.display = 'block';
     $('#wait-note').textContent = 'Переподключение к игре…';
+  } else if (inviteCode) {
+    autoJoinInvite(inviteCode); // fresh open from an invite link
   }
 
+  // "Создать комнату" opens the settings screen first
   $('#btn-create').addEventListener('click', () => {
     const name = $('#inp-name').value.trim();
     if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
-    $('#btn-create').disabled = true;
+    $('#lobby-form').style.display = 'none';
+    $('#settings-screen').style.display = 'block';
+  });
+  $('#btn-settings-back').addEventListener('click', () => {
+    $('#settings-screen').style.display = 'none';
+    $('#lobby-form').style.display = 'block';
+  });
+
+  // segmented pickers: single choice per group
+  $$('.seg').forEach(seg => {
+    seg.addEventListener('click', e => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      seg.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('is-on'));
+      b.classList.add('is-on');
+      if (seg.id === 'set-theme') B3D.previewTheme?.(b.dataset.v);
+    });
+  });
+
+  function collectSettings() {
+    const segVal = id => {
+      const on = $('#' + id).querySelector('.seg-btn.is-on');
+      return on ? on.dataset.v : null;
+    };
+    return {
+      startMoney: parseInt(segVal('set-money'), 10) || 1500,
+      turnTimer: parseInt(segVal('set-timer'), 10) || 0,
+      theme: segVal('set-theme') || 'classic',
+      auction: $('#set-auction').checked,
+      freeParkingPot: $('#set-pot').checked,
+      innerCircle: $('#set-metro').checked,
+      speedDie: $('#set-speed').checked,
+    };
+  }
+
+  $('#btn-create-confirm').addEventListener('click', () => {
+    const name = $('#inp-name').value.trim();
+    if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
+    NET.settings = collectSettings();
+    $('#btn-create-confirm').disabled = true;
     hostGame(name, (err) => {
-      if (err) { $('#lobby-error').textContent = err.message || 'Ошибка соединения'; $('#btn-create').disabled = false; return; }
+      if (err) {
+        $('#btn-create-confirm').disabled = false;
+        $('#settings-screen').style.display = 'none';
+        $('#lobby-form').style.display = 'block';
+        $('#lobby-error').textContent = err.message || 'Ошибка соединения';
+        return;
+      }
+      $('#settings-screen').style.display = 'none';
       renderLobby();
     });
   });
