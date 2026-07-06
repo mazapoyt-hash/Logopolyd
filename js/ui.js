@@ -277,7 +277,7 @@ function renderCenter() {
   const myTurn = me === s.turn && !s.players[me]?.bankrupt && s.winner === null;
   const p = s.players[s.turn];
 
-  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && fxBusy === 0;
+  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && !s.pendingMetro && !s.auction && fxBusy === 0;
   $('#btn-roll').style.display = canRoll ? 'inline-block' : 'none';
 
   const showJail = myTurn && p.inJail && !s.rolled;
@@ -300,7 +300,7 @@ function renderCenter() {
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];
-  const canEnd = myTurn && s.rolled && s.pendingBuy === null && meP && meP.money >= 0 && fxBusy === 0;
+  const canEnd = myTurn && s.rolled && s.pendingBuy === null && !s.pendingMetro && !s.auction && meP && meP.money >= 0 && fxBusy === 0;
   $('#act-end').disabled = !canEnd;
   // prominent central end-turn button so it's not forgotten
   $('#btn-end-center').style.display = canEnd ? 'inline-flex' : 'none';
@@ -372,6 +372,22 @@ function renderModals() {
       <div class="deed">${deedHTML(au.tile)}</div>
       <div class="card-body">Текущая ставка: <b>${highTxt}</b></div>
       ${controls}`);
+    return;
+  }
+
+  if (s.pendingMetro) {
+    const mto = s.pendingMetro.to;
+    if (me === s.turn) {
+      openModal(`<div class="modal-title">🚇 Метро</div>
+        <div class="card-body">Перепрыгнуть на противоположную сторону поля — <b>${esc(TILES[mto].name)}</b>?</div>
+        <div class="modal-btns">
+          <button class="btn gold" onclick="sendAction({type:'metroJump'})">Ехать 🚇</button>
+          <button class="btn" onclick="sendAction({type:'metroStay'})">Остаться</button>
+        </div>`);
+    } else {
+      openModal(`<div class="modal-title">🚇 Метро</div>
+        <div class="card-body">${esc(s.players[s.turn].name)} решает, ехать ли на метро…</div>`);
+    }
     return;
   }
 

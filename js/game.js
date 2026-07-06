@@ -24,6 +24,7 @@ function newGameState(lobbyPlayers, settings) {
     rolled: false,
     doubles: 0,
     pendingBuy: null,       // tile index awaiting buy/decline
+    pendingMetro: null,     // {from, to} inner-circle jump offer
     pendingCard: null,      // {deck, text} shown to all
     trade: null,            // {from, to, giveMoney, getMoney, giveProps, getProps}
     chanceIdx: 0, chestIdx: 0,
@@ -297,10 +298,14 @@ function applyAction(state, pi, a) {
 
   switch (a.type) {
     case 'roll': {
-      if (!isTurn || state.rolled || state.pendingBuy !== null || state.auction) return;
+      if (!isTurn || state.rolled || state.pendingBuy !== null || state.pendingMetro || state.auction) return;
       const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
-      state.dice = [d1, d2];
-      pushEv(state, { kind: 'dice', d: [d1, d2], pi });
+      const useSpeed = !!(state.settings && state.settings.speedDie) && !p.inJail;
+      const d3 = useSpeed ? 1 + Math.floor(Math.random() * 6) : 0;
+      const diceArr = useSpeed ? [d1, d2, d3] : [d1, d2];
+      const steps = d1 + d2 + d3;
+      state.dice = diceArr;
+      pushEv(state, { kind: 'dice', d: diceArr, pi });
       const isDouble = d1 === d2;
       if (p.inJail) {
         p.jailTurns++;
@@ -308,16 +313,16 @@ function applyAction(state, pi, a) {
           p.inJail = false;
           glog(state, `${p.name} выбрасывает дубль ${d1}:${d2} и выходит из тюрьмы!`);
           state.rolled = true;
-          movePlayer(state, pi, d1 + d2);
-          landOn(state, pi, d1 + d2);
+          movePlayer(state, pi, steps);
+          landOn(state, pi, steps);
         } else if (p.jailTurns >= 3) {
           p.money -= 50;
           addToPot(state, 50);
           p.inJail = false;
           glog(state, `${p.name} платит ${CUR}50 и выходит из тюрьмы`);
           state.rolled = true;
-          movePlayer(state, pi, d1 + d2);
-          landOn(state, pi, d1 + d2);
+          movePlayer(state, pi, steps);
+          landOn(state, pi, steps);
         } else {
           glog(state, `${p.name} бросает ${d1}:${d2} — не дубль, остаётся в тюрьме`);
           state.rolled = true;
@@ -337,9 +342,9 @@ function applyAction(state, pi, a) {
         state.doubles = 0;
         state.rolled = true;
       }
-      glog(state, `${p.name} бросает ${d1}:${d2}${isDouble ? ' (дубль — ходит ещё раз)' : ''}`);
-      movePlayer(state, pi, d1 + d2);
-      landOn(state, pi, d1 + d2);
+      glog(state, `${p.name} бросает ${d1}:${d2}${d3 ? `:${d3}🚀` : ''}${isDouble ? ' (дубль — ходит ещё раз)' : ''}`);
+      movePlayer(state, pi, steps);
+      landOn(state, pi, steps);
       if (p.inJail) { state.rolled = true; state.doubles = 0; }
       break;
     }
@@ -379,6 +384,22 @@ function applyAction(state, pi, a) {
       if (!au.passed.includes(pi)) au.passed.push(pi);
       glog(state, `${p.name} пасует на аукционе`);
       resolveAuction(state);
+      break;
+    }
+    case 'metroJump': {
+      if (!state.pendingMetro || !isTurn) return;
+      const from = p.pos, to = state.pendingMetro.to;
+      state.pendingMetro = null;
+      p.pos = to;
+      pushEv(state, { kind: 'move', pi, from, to, jump: true });
+      glog(state, `🚇 ${p.name} едет на метро → ${TILES[to].name}`);
+      landOn(state, pi, 0, 1, true); // resolve destination, no further metro hop
+      break;
+    }
+    case 'metroStay': {
+      if (!state.pendingMetro || !isTurn) return;
+      state.pendingMetro = null;
+      glog(state, `${p.name} остаётся на вокзале`);
       break;
     }
     case 'payJail': {
@@ -494,7 +515,7 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'endTurn': {
-      if (!isTurn || !state.rolled || state.pendingBuy !== null || state.auction || p.money < 0) return;
+      if (!isTurn || !state.rolled || state.pendingBuy !== null || state.pendingMetro || state.auction || p.money < 0) return;
       advanceTurn(state);
       break;
     }
@@ -506,6 +527,7 @@ function advanceTurn(state) {
   state.dice = null;
   state.doubles = 0;
   state.pendingBuy = null;
+  state.pendingMetro = null;
   let next = state.turn;
   for (let k = 0; k < state.players.length; k++) {
     next = (next + 1) % state.players.length;
@@ -528,11 +550,13 @@ function autoTurn(state) {
   bumpV(state);
   if (state.auction) { applyAction(state, pi, { type: 'passBid' }); return true; }
   if (state.pendingCard) { state.pendingCard = null; }
+  if (state.pendingMetro) { applyAction(state, pi, { type: 'metroStay' }); }
   if (state.pendingBuy !== null) { applyAction(state, pi, { type: 'declineBuy' }); }
   if (!state.rolled && !p.inJail) { applyAction(state, pi, { type: 'roll' }); }
   if (p.inJail && !state.rolled) { applyAction(state, pi, { type: 'roll' }); }
   if (state.pendingBuy !== null) { applyAction(state, pi, { type: 'declineBuy' }); }
-  if (state.rolled && state.pendingBuy === null && !state.auction && p.money >= 0) {
+  if (state.pendingMetro) { applyAction(state, pi, { type: 'metroStay' }); }
+  if (state.rolled && state.pendingBuy === null && !state.pendingMetro && !state.auction && p.money >= 0) {
     advanceTurn(state);
   }
   glog(state, `⏱ Время вышло — ход ${p.name} завершён автоматически`);
