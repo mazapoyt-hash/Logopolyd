@@ -50,29 +50,17 @@
     <button class="icon-btn" id="btn-chat">💬<span id="chat-badge" class="chat-badge" style="display:none"></span></button>
   </div>
 
-  <div class="board-scene">
-    <div class="board-tilt">
-      <div class="table-surface">
-        <img class="table-prop money-prop" src="assets/prop_money.png" alt="">
-        <img class="table-prop money-prop2" src="assets/prop_money.png" alt="">
+  <div class="board-scene" id="board3d-wrap">
+    <div class="center-hud">
+      <button id="btn-roll" class="btn gold roll-btn" style="display:none">Бросить кубики</button>
+      <div id="jail-actions" class="jail-actions" style="display:none">
+        <button id="btn-payjail" class="btn small">Заплатить ₩50</button>
+        <button id="btn-jailcard" class="btn small" style="display:none">Карта выхода</button>
       </div>
-      <div id="board" class="board">
-        <div class="board-center">
-          <div class="center-logo" aria-hidden="true">MONOPOLY</div>
-          <div class="deck deck-chance" id="deck-chance"><div class="deck-top"><span>ШАНС</span></div></div>
-          <div class="deck deck-chest" id="deck-chest"><div class="deck-top"><span>КАЗНА</span></div></div>
-          <div class="center-controls">
-            <div id="dice" class="dice-row"></div>
-            <button id="btn-roll" class="btn gold roll-btn" style="display:none">Бросить кубики</button>
-            <div id="jail-actions" class="jail-actions" style="display:none">
-              <button id="btn-payjail" class="btn small">Заплатить ₩50</button>
-              <button id="btn-jailcard" class="btn small" style="display:none">Карта выхода</button>
-            </div>
-            <div id="turn-hint" class="turn-hint"></div>
-          </div>
-        </div>
-        <div id="token-layer"></div>
-      </div>
+      <div id="turn-hint" class="turn-hint"></div>
+    </div>
+    <div id="host-away" class="host-away" style="display:none">
+      <span class="ha-spin"></span> Создатель комнаты переподключается…
     </div>
   </div>
 
@@ -130,9 +118,11 @@
   </div>
 </div>
 
+<script src="js/vendor/three.min.js"></script>
 <script src="js/data.js"></script>
 <script src="js/game.js"></script>
 <script src="js/net.js"></script>
+<script src="js/board3d.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

@@ -133,37 +133,37 @@ body {
 .plaque-name { font-weight: 700; font-size: 14px; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
 .plaque-money { font-size: 13px; font-weight: 600; color: #fff; opacity: 0.95; }
 
-/* ===================== BOARD ===================== */
+/* ===================== BOARD (WebGL scene) ===================== */
 .board-scene {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  perspective: 1700px; min-height: 0; padding: 4px 0;
+  flex: 1; min-height: 0; position: relative; overflow: hidden;
 }
+.board-scene canvas { display: block; width: 100%; height: 100%; }
 
-.board-tilt {
-  --tiltx: 24deg; --zoom: 1.06; --panx: 0px; --pany: 0px;
-  transform: translate(var(--panx), var(--pany)) rotateX(var(--tiltx)) scale(var(--zoom));
-  transform-style: preserve-3d;
-  transition: transform .9s cubic-bezier(.3, .7, .3, 1);
-  position: relative;
+/* HUD overlay in the middle of the 3D scene */
+.center-hud {
+  position: absolute; left: 50%; top: 58%;
+  transform: translate(-50%, -50%);
+  display: flex; flex-direction: column; align-items: center; gap: 10px;
+  z-index: 5; pointer-events: none;
 }
-.board-tilt.flat { --tiltx: 0deg; --zoom: 1; }
+.center-hud .btn, .center-hud .jail-actions { pointer-events: auto; }
 
-/* Physical table under the board */
-.table-surface {
-  position: absolute; left: 50%; top: 50%;
-  width: 165%; height: 150%;
-  transform: translate(-50%, -50%) translateZ(-14px);
-  background:
-    radial-gradient(ellipse at 50% 38%, rgba(255, 214, 150, 0.22), rgba(0, 0, 0, 0.6) 80%),
-    url('../assets/table_wood.png') center/cover no-repeat,
-    linear-gradient(160deg, #5a3d24, #2e1e10);
-  border-radius: 28px;
-  box-shadow:
-    0 60px 90px rgba(0, 0, 0, 0.75),
-    inset 0 0 90px rgba(0, 0, 0, 0.45),
-    inset 0 2px 0 rgba(255, 230, 180, 0.12);
+/* host reconnecting banner */
+.host-away {
+  position: absolute; left: 50%; top: 14px;
+  transform: translateX(-50%);
+  display: flex; align-items: center; gap: 10px;
+  background: rgba(14, 12, 10, 0.85); color: #ffd965;
+  border: 1px solid rgba(255, 217, 101, 0.35); border-radius: 12px;
+  padding: 9px 18px; font-size: 13px; font-weight: 600; z-index: 20;
+  backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
 }
-.board-tilt.flat .table-surface { transform: translate(-50%, -50%); }
+.ha-spin {
+  width: 14px; height: 14px; border-radius: 50%;
+  border: 2px solid rgba(255, 217, 101, 0.3); border-top-color: #ffd965;
+  animation: haspin 0.9s linear infinite;
+}
+@keyframes haspin { to { transform: rotate(360deg); } }
 
 /* Card decks lying on the board, aligned with the diagonal logo */
 .deck {
@@ -440,7 +440,13 @@ body {
 
 .roll-btn { width: auto; font-size: clamp(11px, 1.6vmin, 16px); padding: 10px 22px; }
 .jail-actions { display: flex; gap: 8px; }
-.turn-hint { font-size: clamp(9px, 1.4vmin, 15px); color: #333; font-weight: 600; text-align: center; }
+.turn-hint {
+  font-size: clamp(10px, 1.5vmin, 15px); color: #f0e8d4; font-weight: 600; text-align: center;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9), 0 0 14px rgba(0, 0, 0, 0.6);
+  background: rgba(14, 12, 10, 0.4); border-radius: 9px; padding: 4px 12px;
+  backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+}
+.turn-hint:empty { display: none; }
 
 /* ===================== LOG (translucent, collapsible) ===================== */
 .log-wrap {
@@ -568,8 +574,7 @@ body {
   .plaque-ava { width: 30px; height: 30px; }
   .plaque-name { font-size: 11px; }
   .plaque-money { font-size: 11px; }
-  .board-tilt { --tiltx: 10deg; --zoom: 1; }
-  .board { width: min(96vw, 96vmin); height: min(96vw, 96vmin); }
+  .center-hud { top: 62%; }
   .log-wrap { max-width: 60vw; bottom: calc(72px + var(--safe-b)); }
   .log-panel { font-size: 10px; max-height: 84px; }
   .actionbar { gap: 0; padding: 6px 8px calc(8px + var(--safe-b)); width: 100%; border-radius: 14px 14px 0 0; }
@@ -581,5 +586,5 @@ body {
 }
 
 @media (max-width: 700px) and (orientation: landscape) {
-  .board { width: 92vmin; height: 92vmin; }
+  .center-hud { top: 55%; }
 }
