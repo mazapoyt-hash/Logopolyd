@@ -27,8 +27,14 @@ function newGameState(lobbyPlayers) {
     log: [],
     events: [],   // ordered animation events, consumed exactly once by clients
     evSeq: 0,
+    stateV: 1,    // state version: clients ignore snapshots with stateV <= theirs
     winner: null,
   };
+}
+
+// Bump the state version. Called on every mutation the host broadcasts.
+function bumpV(state) {
+  state.stateV = (state.stateV || 0) + 1;
 }
 
 // Push an ordered animation event (dice roll, token move, card draw).
@@ -220,6 +226,7 @@ function applyAction(state, pi, a) {
   const p = state.players[pi];
   if (state.winner !== null) return;
   if (p.bankrupt) return;
+  bumpV(state);
   const isTurn = state.turn === pi;
 
   switch (a.type) {
