@@ -5,6 +5,9 @@ const TOKEN_IMGS = ['tok_hat', 'tok_car', 'tok_dog', 'tok_ship', 'tok_boot', 'to
 let unreadChat = 0;
 const cardFx = { key: '', visible: false };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
+const inviteBtnLabel = () => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg> Пригласить в Telegram`;
+// prefer a player's Telegram photo, fall back to the built-in colored avatar
+const avaSrc = p => p.photo ? p.photo : `assets/ava_${p.color}.png`;
 
 // ---------- Sounds (tiny WebAudio synth, no files) ----------
 const snd = (() => {
@@ -83,10 +86,13 @@ function renderFx(s) {
   // money change chime + floating delta over the plaque
   if (fxq.money) {
     let changed = false;
+    const me = myPlayerIndex();
     s.players.forEach((p, i) => {
       if (fxq.money[i] !== undefined && p.money !== fxq.money[i]) {
         changed = true;
-        flashMoney(i, p.money - fxq.money[i]);
+        const delta = p.money - fxq.money[i];
+        flashMoney(i, delta);
+        if (i === me) TG.haptic(delta < 0 ? 'warning' : 'success');
       }
     });
     if (changed) snd.cash();
@@ -135,6 +141,7 @@ function confettiBurst() {
     c.appendChild(d);
   }
   snd.win();
+  TG.haptic('success');
   setTimeout(() => { c.innerHTML = ''; }, 7000);
 }
 
@@ -215,6 +222,7 @@ function renderLobby() {
     $('#lobby-form').style.display = 'none';
     wait.style.display = 'block';
     $('#room-code').textContent = NET.roomCode;
+    $('#btn-invite').style.display = TG.inside ? 'flex' : 'none';
     $('#lobby-players').innerHTML = NET.lobbyPlayers.map((p, i) =>
       `<div class="lobby-player"><span class="lp-dot" style="background:${PLAYER_COLORS[i % PLAYER_COLORS.length].solid}"></span>${esc(p.name)}${i === 0 ? ' 👑' : ''}</div>`).join('');
     if (NET.isHost) {
@@ -234,7 +242,7 @@ function renderPlaques() {
     return `<div id="plaque-${i}" class="plaque ${i === s.turn ? 'active' : ''} ${p.bankrupt ? 'dead' : ''}"
       role="button" tabindex="0" title="Показать участки" onclick="showPlayerHoldings(${i})"
       style="background:linear-gradient(90deg,${col.grad[0]},${col.grad[1]})">
-      <div class="plaque-ava"><img src="assets/ava_${p.color}.png" alt=""></div>
+      <div class="plaque-ava"><img src="${avaSrc(p)}" alt="" onerror="this.src='assets/ava_${p.color}.png'"></div>
       <div class="plaque-info"><div class="plaque-name">${esc(p.name)}${p.peerId === NET.myPeerId ? ' (ты)' : ''}</div>
       <div class="plaque-money">${CUR}${p.money}${p.inJail ? ' 🚔' : ''}${p.jailCards ? ' 🎫'.repeat(p.jailCards) : ''}</div></div>
       <div class="plaque-badge">${owned}</div>
@@ -407,6 +415,15 @@ function deedHTML(i) {
     <table class="deed-table">${rows}<tr><td>Залог</td><td>${CUR}${Math.floor(t.price / 2)}</td></tr></table>`;
 }
 
+function confirmExit() {
+  const wa = window.Telegram && window.Telegram.WebApp;
+  if (TG.inside && wa && wa.showConfirm) {
+    wa.showConfirm('Выйти из игры? Ты покинешь текущую комнату.', ok => { if (ok) leaveRoom(); });
+  } else if (confirm('Выйти из игры? Ты покинешь текущую комнату.')) {
+    leaveRoom();
+  }
+}
+
 function showPlayerHoldings(pi) {
   const s = NET.state;
   if (!s || !s.players[pi]) return;
@@ -424,7 +441,7 @@ function showPlayerHoldings(pi) {
   }).join('') : '<div class="wait-note">Пока нет участков</div>';
   const col = PLAYER_COLORS[p.color];
   openModal(`<div class="hold-head" style="background:linear-gradient(90deg,${col.grad[0]},${col.grad[1]})">
-      <img src="assets/ava_${p.color}.png" alt=""><span>${esc(p.name)}</span></div>
+      <img src="${avaSrc(p)}" alt="" onerror="this.src='assets/ava_${p.color}.png'"><span>${esc(p.name)}</span></div>
     <div class="hold-cash">Баланс <b>${CUR}${p.money}</b> · Участков <b>${owned.length}</b> · Активы <b>${CUR}${worth}</b></div>
     <div class="mng-list">${rows}</div>
     <button class="btn" onclick="closeModal()">Закрыть</button>`, true);
@@ -560,6 +577,32 @@ document.addEventListener('DOMContentLoaded', () => {
   NET.onUpdate = render;
   NET.onChat = addChat;
 
+  // ---- Telegram Mini App: expand, theme, auto name/avatar, deep-link invites ----
+  TG.init();
+  if (TG.inside) {
+    document.body.classList.add('in-telegram');
+    const tgName = TG.name();
+    if (tgName) {
+      $('#inp-name').value = tgName;
+      NET.myPhoto = TG.photo();
+      const ava = $('#tg-greet-ava');
+      if (NET.myPhoto) { ava.src = NET.myPhoto; ava.style.display = 'block'; }
+      else ava.style.display = 'none';
+      $('#tg-greet-name').textContent = tgName;
+      $('#tg-greet').style.display = 'flex';
+      $('#inp-name').style.display = 'none';
+    }
+    // opened via invite link t.me/bot/app?startapp=CODE -> prefill the join code
+    const sp = TG.startParam();
+    if (sp && /^[A-Z0-9]{6}$/i.test(sp)) $('#inp-code').value = sp.toUpperCase();
+  }
+  // let the user reveal the name field to change the auto-filled Telegram name
+  $('#tg-greet-edit').addEventListener('click', () => {
+    $('#tg-greet').style.display = 'none';
+    $('#inp-name').style.display = 'block';
+    $('#inp-name').focus();
+  });
+
   // auto-resume a saved session (page was refreshed mid-game)
   const resuming = tryResume((err) => {
     if (err) {
@@ -602,16 +645,25 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#btn-copy').addEventListener('click', () => {
     navigator.clipboard?.writeText(NET.roomCode);
+    TG.haptic('light');
     $('#btn-copy').textContent = '✓';
     setTimeout(() => $('#btn-copy').textContent = 'Копировать', 1200);
   });
 
-  $('#btn-start').addEventListener('click', () => hostStartGame());
-  $('#btn-roll').addEventListener('click', () => sendAction({ type: 'roll' }));
-  $('#btn-end-center').addEventListener('click', () => sendAction({ type: 'endTurn' }));
-  $('#btn-exit').addEventListener('click', () => {
-    if (confirm('Выйти из игры? Ты покинешь текущую комнату.')) leaveRoom();
+  $('#btn-invite').addEventListener('click', () => {
+    TG.haptic('light');
+    if (!TG.shareInvite(NET.roomCode)) {
+      // bot/mini-app not configured yet: fall back to copying the code
+      navigator.clipboard?.writeText(NET.roomCode);
+      $('#btn-invite').textContent = 'Код скопирован ✓';
+      setTimeout(() => { $('#btn-invite').innerHTML = inviteBtnLabel(); }, 1400);
+    }
   });
+
+  $('#btn-start').addEventListener('click', () => { TG.haptic('medium'); hostStartGame(); });
+  $('#btn-roll').addEventListener('click', () => { TG.haptic('medium'); sendAction({ type: 'roll' }); });
+  $('#btn-end-center').addEventListener('click', () => { TG.haptic('light'); sendAction({ type: 'endTurn' }); });
+  $('#btn-exit').addEventListener('click', () => { TG.haptic('light'); confirmExit(); });
   $('#btn-payjail').addEventListener('click', () => sendAction({ type: 'payJail' }));
   $('#btn-jailcard').addEventListener('click', () => sendAction({ type: 'useJailCard' }));
   $('#act-end').addEventListener('click', () => sendAction({ type: 'endTurn' }));

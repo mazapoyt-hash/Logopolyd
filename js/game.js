@@ -10,7 +10,7 @@ function newGameState(lobbyPlayers) {
   return {
     started: true,
     players: lobbyPlayers.map((p, i) => ({
-      peerId: p.peerId, name: p.name, color: i % PLAYER_COLORS.length,
+      peerId: p.peerId, name: p.name, photo: p.photo || '', color: i % PLAYER_COLORS.length,
       money: 1500, pos: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
     })),
     props,

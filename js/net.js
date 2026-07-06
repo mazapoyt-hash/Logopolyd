@@ -13,6 +13,7 @@ const NET = {
   lobbyPlayers: [],     // [{peerId, name}]
   state: null,
   myName: '',
+  myPhoto: '',          // Telegram avatar url (optional)
   joined: false,        // client: got first lobby snapshot
   hostAway: false,      // client: host disconnected, waiting for it to return
   lastHostMsg: 0,       // client: timestamp of last message from host
@@ -56,7 +57,7 @@ function myPlayerIndex() {
 function saveSession() {
   try {
     localStorage.setItem(SES_KEY, JSON.stringify({
-      roomCode: NET.roomCode, peerId: NET.myPeerId, name: NET.myName, isHost: NET.isHost,
+      roomCode: NET.roomCode, peerId: NET.myPeerId, name: NET.myName, isHost: NET.isHost, photo: NET.myPhoto,
     }));
   } catch (e) { /* private mode */ }
 }
@@ -137,7 +138,7 @@ function hostGame(name, cb, brokerIdx = 0) {
       let data; try { data = JSON.parse(raw.toString()); } catch (e) { return; }
       hostOnData(data);
     });
-    NET.lobbyPlayers = [{ peerId: NET.myPeerId, name }];
+    NET.lobbyPlayers = [{ peerId: NET.myPeerId, name, photo: NET.myPhoto || '' }];
     saveSession();
     startHeartbeat();
     cb(null, code);
@@ -212,7 +213,7 @@ function hostOnData(data) {
       return;
     }
     if (NET.lobbyPlayers.length >= 6) { hostBroadcast({ type: 'errmsg', to: data.from, text: 'Комната заполнена (макс. 6)' }, 1); return; }
-    NET.lobbyPlayers.push({ peerId: data.from, name: String(data.name).slice(0, 14) || 'Игрок' });
+    NET.lobbyPlayers.push({ peerId: data.from, name: String(data.name).slice(0, 14) || 'Игрок', photo: (data.photo || '').slice(0, 512) });
     hostBroadcast({ type: 'lobby', players: NET.lobbyPlayers, roomCode: NET.roomCode }, 1);
     saveHostState();
     NET.onUpdate();
@@ -284,7 +285,7 @@ function joinGame(name, code, cb, resumePeerId = null) {
     if (err) { finish(new Error('Нет связи с сервером. Проверь интернет и попробуй ещё раз.')); return; }
     NET.client = client;
     client.subscribe(topicAll(rc), { qos: 1 }, () => {
-      pub(topicHost(rc), { type: 'join', name, from: NET.myPeerId }, 1);
+      pub(topicHost(rc), { type: 'join', name, from: NET.myPeerId, photo: NET.myPhoto || '' }, 1);
     });
 
     const timer = setTimeout(() => {
@@ -329,6 +330,7 @@ function joinGame(name, code, cb, resumePeerId = null) {
 function tryResume(onDone) {
   const ses = loadSession();
   if (!ses || !ses.roomCode || !ses.peerId) return false;
+  if (ses.photo) NET.myPhoto = ses.photo;
   if (ses.isHost) {
     hostResume(ses, err => onDone(err, ses));
   } else {
