@@ -1,5 +1,6 @@
 // ===== UI rendering & interaction =====
 const $ = sel => document.querySelector(sel);
+const $$ = sel => Array.from(document.querySelectorAll(sel));
 const TOKENS = ['🎩', '🚗', '🐕', '⛵', '👢', '🐈'];
 const TOKEN_IMGS = ['tok_hat', 'tok_car', 'tok_dog', 'tok_ship', 'tok_boot', 'tok_cat'];
 let unreadChat = 0;
@@ -290,6 +291,12 @@ function renderCenter() {
   if (s.winner !== null) hint = `🏆 Победитель: ${s.players[s.winner].name}!`;
   else if (myTurn) hint = s.rolled ? 'Заверши ход или управляй имуществом' : (p.inJail ? 'Ты в тюрьме: плати, используй карту или бросай на дубль' : 'Твой ход!');
   else hint = `Ходит ${esc(p.name)}…`;
+  // turn timer countdown
+  if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0) {
+    const left = Math.max(0, Math.ceil((s.turnDeadline - Date.now()) / 1000));
+    const warn = left <= 10 ? ' timer-warn' : '';
+    hint += `<div class="turn-timer${warn}">⏱ ${left}с</div>`;
+  }
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];
@@ -342,6 +349,31 @@ function renderModals() {
     return;
   }
   if (cardFx.visible) hideCardFx();
+
+  if (s.auction) {
+    const au = s.auction;
+    const t = TILES[au.tile];
+    const iAmIn = me >= 0 && !s.players[me].bankrupt && !au.passed.includes(me);
+    const highTxt = au.bidder >= 0 ? `${CUR}${au.high} — ${esc(s.players[au.bidder].name)}` : 'ставок нет';
+    let controls = '';
+    if (iAmIn) {
+      const step = au.high < 50 ? 10 : au.high < 200 ? 25 : 50;
+      const next = au.high + step;
+      const canBid = s.players[me].money >= next;
+      controls = `<div class="modal-btns">
+        <button class="btn gold" ${canBid ? '' : 'disabled'} onclick="sendAction({type:'bid',amount:${next}})">Ставка ${CUR}${next}</button>
+        <button class="btn" onclick="sendAction({type:'passBid'})">Пас</button>
+      </div>
+      <div class="wait-note">Твой баланс: ${CUR}${s.players[me].money}</div>`;
+    } else {
+      controls = `<div class="wait-note">${au.passed.includes(me) ? 'Ты спасовал. ' : ''}Идут торги…</div>`;
+    }
+    openModal(`<div class="modal-title">🔨 Аукцион</div>
+      <div class="deed">${deedHTML(au.tile)}</div>
+      <div class="card-body">Текущая ставка: <b>${highTxt}</b></div>
+      ${controls}`);
+    return;
+  }
 
   if (s.pendingBuy !== null) {
     const t = TILES[s.pendingBuy];
@@ -593,6 +625,15 @@ document.addEventListener('DOMContentLoaded', () => {
   NET.onUpdate = render;
   NET.onChat = addChat;
 
+  // 1s ticker so the turn-timer countdown stays live between state updates
+  setInterval(() => {
+    const s = NET.state;
+    if (s && s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0
+        && $('#game').style.display !== 'none') {
+      renderCenter();
+    }
+  }, 1000);
+
   // ---- Telegram Mini App: expand, theme, auto name/avatar, deep-link invites ----
   let inviteCode = '';
   TG.init();
@@ -676,12 +717,59 @@ document.addEventListener('DOMContentLoaded', () => {
     autoJoinInvite(inviteCode); // fresh open from an invite link
   }
 
+  // "Создать комнату" opens the settings screen first
   $('#btn-create').addEventListener('click', () => {
     const name = $('#inp-name').value.trim();
     if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
-    $('#btn-create').disabled = true;
+    $('#lobby-form').style.display = 'none';
+    $('#settings-screen').style.display = 'block';
+  });
+  $('#btn-settings-back').addEventListener('click', () => {
+    $('#settings-screen').style.display = 'none';
+    $('#lobby-form').style.display = 'block';
+  });
+
+  // segmented pickers: single choice per group
+  $$('.seg').forEach(seg => {
+    seg.addEventListener('click', e => {
+      const b = e.target.closest('.seg-btn');
+      if (!b) return;
+      seg.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('is-on'));
+      b.classList.add('is-on');
+      if (seg.id === 'set-theme') B3D.previewTheme?.(b.dataset.v);
+    });
+  });
+
+  function collectSettings() {
+    const segVal = id => {
+      const on = $('#' + id).querySelector('.seg-btn.is-on');
+      return on ? on.dataset.v : null;
+    };
+    return {
+      startMoney: parseInt(segVal('set-money'), 10) || 1500,
+      turnTimer: parseInt(segVal('set-timer'), 10) || 0,
+      theme: segVal('set-theme') || 'classic',
+      auction: $('#set-auction').checked,
+      freeParkingPot: $('#set-pot').checked,
+      innerCircle: $('#set-metro').checked,
+      speedDie: $('#set-speed').checked,
+    };
+  }
+
+  $('#btn-create-confirm').addEventListener('click', () => {
+    const name = $('#inp-name').value.trim();
+    if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
+    NET.settings = collectSettings();
+    $('#btn-create-confirm').disabled = true;
     hostGame(name, (err) => {
-      if (err) { $('#lobby-error').textContent = err.message || 'Ошибка соединения'; $('#btn-create').disabled = false; return; }
+      if (err) {
+        $('#btn-create-confirm').disabled = false;
+        $('#settings-screen').style.display = 'none';
+        $('#lobby-form').style.display = 'block';
+        $('#lobby-error').textContent = err.message || 'Ошибка соединения';
+        return;
+      }
+      $('#settings-screen').style.display = 'none';
       renderLobby();
     });
   });

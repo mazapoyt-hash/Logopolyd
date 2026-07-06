@@ -14,6 +14,7 @@ const NET = {
   state: null,
   myName: '',
   myPhoto: '',          // Telegram avatar url (optional)
+  settings: null,       // host-chosen game settings (applied at start)
   joined: false,        // client: got first lobby snapshot
   hostAway: false,      // client: host disconnected, waiting for it to return
   lastHostMsg: 0,       // client: timestamp of last message from host
@@ -112,6 +113,14 @@ function startHeartbeat() {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
     if (!NET.isHost || !NET.client) return;
+    // turn timer: if the active player's deadline passed, auto-resolve the turn
+    if (NET.state && NET.state.turnDeadline && NET.state.winner === null
+        && Date.now() > NET.state.turnDeadline) {
+      autoTurn(NET.state);
+      hostBroadcastState();
+      NET.onUpdate();
+      return;
+    }
     if (NET.state) hostBroadcast({ type: 'state', state: NET.state }, 0);
     else hostBroadcast({ type: 'lobby', players: NET.lobbyPlayers, roomCode: NET.roomCode }, 0);
   }, HEARTBEAT_MS);
@@ -242,7 +251,7 @@ function hostBroadcast(msg, qos = 0) {
 }
 
 function hostStartGame() {
-  NET.state = newGameState(NET.lobbyPlayers);
+  NET.state = newGameState(NET.lobbyPlayers, NET.settings);
   glog(NET.state, `🎲 Игра началась! Ходит ${NET.state.players[0].name}`);
   hostBroadcastState();
   NET.onUpdate();

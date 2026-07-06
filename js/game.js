@@ -1,6 +1,7 @@
 // ===== Game engine (runs on the host, clients only render state) =====
 
-function newGameState(lobbyPlayers) {
+function newGameState(lobbyPlayers, settings) {
+  const cfg = Object.assign({}, DEFAULT_SETTINGS, settings || {});
   const props = {};
   TILES.forEach((t, i) => {
     if (t.type === 'prop' || t.type === 'rail' || t.type === 'util') {
@@ -9,12 +10,16 @@ function newGameState(lobbyPlayers) {
   });
   return {
     started: true,
+    settings: cfg,
+    parkingPot: 0,          // free-parking money pile (if enabled)
+    auction: null,          // active auction state (if enabled)
     players: lobbyPlayers.map((p, i) => ({
       peerId: p.peerId, name: p.name, photo: p.photo || '', color: i % PLAYER_COLORS.length,
-      money: 1500, pos: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
+      money: cfg.startMoney, pos: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
     })),
     props,
     turn: 0,
+    turnDeadline: cfg.turnTimer > 0 ? Date.now() + cfg.turnTimer * 1000 : 0,
     dice: null,
     rolled: false,
     doubles: 0,
@@ -133,7 +138,42 @@ function sendToJail(state, pi) {
   glog(state, `${p.name} отправляется в тюрьму 🚔`);
 }
 
-function landOn(state, pi, diceSum, rentMult = 1) {
+// Put an unbought tile up for auction among all solvent players.
+function startAuction(state, tileIdx) {
+  const eligible = state.players.map((p, i) => i).filter(i => !state.players[i].bankrupt);
+  if (eligible.length < 1) return;
+  state.auction = { tile: tileIdx, high: 0, bidder: -1, passed: [] };
+  glog(state, `🔨 ${TILES[tileIdx].name} выставлен на аукцион (стартовая цена ${CUR}0)`);
+  resolveAuction(state);
+}
+
+// Close the auction once only one (or zero) bidder remains.
+function resolveAuction(state) {
+  const au = state.auction;
+  if (!au) return;
+  const active = state.players
+    .map((p, i) => i)
+    .filter(i => !state.players[i].bankrupt && !au.passed.includes(i));
+  // more than one player left -> keep it open
+  if (active.length > 1) return;
+  // exactly one left who hasn't yet placed the top bid -> let them bid
+  if (active.length === 1 && active[0] !== au.bidder) return;
+  // everyone passed and nobody bid -> tile stays with the bank
+  if (au.bidder === -1) {
+    glog(state, `Аукцион завершён без ставок — ${TILES[au.tile].name} остаётся у банка`);
+    state.auction = null;
+    return;
+  }
+  // winner is the top bidder (or the last one left who bid)
+  const w = state.players[au.bidder];
+  w.money -= au.high;
+  state.props[au.tile].owner = au.bidder;
+  addToPot(state, 0);
+  glog(state, `🔨 ${w.name} выигрывает ${TILES[au.tile].name} за ${CUR}${au.high}`);
+  state.auction = null;
+}
+
+function landOn(state, pi, diceSum, rentMult = 1, skipMetro = false) {
   const p = state.players[pi];
   const t = TILES[p.pos];
   const idx = p.pos;
@@ -141,22 +181,47 @@ function landOn(state, pi, diceSum, rentMult = 1) {
     case 'prop': case 'rail': case 'util': {
       const ps = state.props[idx];
       if (ps.owner === -1) {
-        if (p.money >= (t.price || 0) || true) state.pendingBuy = idx;
+        // can't afford it and auctions are on -> straight to auction
+        if (state.settings && state.settings.auction && p.money < (t.price || 0)) {
+          startAuction(state, idx);
+        } else {
+          state.pendingBuy = idx;
+        }
       } else if (ps.owner !== pi && !ps.mortgaged && !state.players[ps.owner].bankrupt) {
         const rent = calcRent(state, idx, diceSum) * rentMult;
         transfer(state, pi, ps.owner, rent);
         glog(state, `${p.name} платит ${CUR}${rent} аренды → ${pName(state, ps.owner)} (${t.name})`);
       }
+      // inner-circle metro: offer a jump to the opposite station
+      if (!skipMetro && state.settings && state.settings.innerCircle
+          && METRO_TILES[idx] !== undefined && state.pendingBuy === null && !state.auction) {
+        state.pendingMetro = { from: idx, to: METRO_TILES[idx] };
+      }
       break;
     }
     case 'tax':
       transfer(state, pi, -1, t.amount);
+      addToPot(state, t.amount);
       glog(state, `${p.name} платит налог ${CUR}${t.amount}`);
       break;
     case 'chance': drawCard(state, pi, 'chance', diceSum); break;
     case 'chest': drawCard(state, pi, 'chest', diceSum); break;
     case 'gotojail': sendToJail(state, pi); break;
+    case 'free':
+      if (state.settings && state.settings.freeParkingPot && state.parkingPot > 0) {
+        p.money += state.parkingPot;
+        glog(state, `${p.name} забирает банк стоянки ${CUR}${state.parkingPot} 🅿️`);
+        state.parkingPot = 0;
+      }
+      break;
     default: break;
+  }
+}
+
+// Add money to the Free Parking pot (only when that rule is on).
+function addToPot(state, amount) {
+  if (state.settings && state.settings.freeParkingPot && amount > 0) {
+    state.parkingPot += amount;
   }
 }
 
@@ -173,7 +238,7 @@ function drawCard(state, pi, deck, diceSum) {
   pushEv(state, { kind: 'card', deck: state.pendingCard.deck, text: card.text, player: p.name });
   glog(state, `${p.name} тянет карту: «${card.text}»`);
   switch (card.act) {
-    case 'money': p.money += card.v; break;
+    case 'money': p.money += card.v; if (card.v < 0) addToPot(state, -card.v); break;
     case 'moveTo': moveTo(state, pi, card.v); landOn(state, pi, diceSum); break;
     case 'back3': movePlayer(state, pi, -3); landOn(state, pi, diceSum); break;
     case 'jail': sendToJail(state, pi); break;
@@ -194,6 +259,7 @@ function drawCard(state, pi, deck, diceSum) {
         if (ps.owner === pi) cost += ps.houses === 5 ? card.ho : ps.houses * card.h;
       });
       p.money -= cost;
+      addToPot(state, cost);
       if (cost) glog(state, `${p.name} платит за ремонт ${CUR}${cost}`);
       break;
     }
@@ -231,7 +297,7 @@ function applyAction(state, pi, a) {
 
   switch (a.type) {
     case 'roll': {
-      if (!isTurn || state.rolled || state.pendingBuy !== null) return;
+      if (!isTurn || state.rolled || state.pendingBuy !== null || state.auction) return;
       const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
       state.dice = [d1, d2];
       pushEv(state, { kind: 'dice', d: [d1, d2], pi });
@@ -246,6 +312,7 @@ function applyAction(state, pi, a) {
           landOn(state, pi, d1 + d2);
         } else if (p.jailTurns >= 3) {
           p.money -= 50;
+          addToPot(state, 50);
           p.inJail = false;
           glog(state, `${p.name} платит ${CUR}50 и выходит из тюрьмы`);
           state.rolled = true;
@@ -289,13 +356,34 @@ function applyAction(state, pi, a) {
     }
     case 'declineBuy': {
       if (state.pendingBuy === null || !isTurn) return;
-      glog(state, `${p.name} отказывается от покупки ${TILES[state.pendingBuy].name}`);
+      const idx = state.pendingBuy;
+      glog(state, `${p.name} отказывается от покупки ${TILES[idx].name}`);
       state.pendingBuy = null;
+      if (state.settings && state.settings.auction) startAuction(state, idx);
+      break;
+    }
+    case 'bid': {
+      const au = state.auction;
+      if (!au || p.bankrupt) return;
+      const amt = Math.floor(a.amount || 0);
+      if (amt <= au.high || amt > p.money) return;
+      au.high = amt; au.bidder = pi;
+      au.passed = au.passed.filter(x => x !== pi);
+      glog(state, `${p.name} ставит ${CUR}${amt} за ${TILES[au.tile].name}`);
+      resolveAuction(state);
+      break;
+    }
+    case 'passBid': {
+      const au = state.auction;
+      if (!au || p.bankrupt) return;
+      if (!au.passed.includes(pi)) au.passed.push(pi);
+      glog(state, `${p.name} пасует на аукционе`);
+      resolveAuction(state);
       break;
     }
     case 'payJail': {
       if (!isTurn || !p.inJail || state.rolled || p.money < 50) return;
-      p.money -= 50; p.inJail = false; p.jailTurns = 0;
+      p.money -= 50; addToPot(state, 50); p.inJail = false; p.jailTurns = 0;
       glog(state, `${p.name} платит ${CUR}50 и выходит из тюрьмы`);
       break;
     }
@@ -406,7 +494,7 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'endTurn': {
-      if (!isTurn || !state.rolled || state.pendingBuy !== null || p.money < 0) return;
+      if (!isTurn || !state.rolled || state.pendingBuy !== null || state.auction || p.money < 0) return;
       advanceTurn(state);
       break;
     }
@@ -424,5 +512,29 @@ function advanceTurn(state) {
     if (!state.players[next].bankrupt) break;
   }
   state.turn = next;
+  const tt = state.settings && state.settings.turnTimer;
+  state.turnDeadline = tt > 0 ? Date.now() + tt * 1000 : 0;
   glog(state, `▶ Ход игрока ${pName(state, next)}`);
+}
+
+// Auto-resolve a stalled turn when the timer runs out (host-driven).
+// Does the minimum sensible thing so the game keeps moving: roll if needed,
+// decline pending buys, then end the turn.
+function autoTurn(state) {
+  if (state.winner !== null) return false;
+  const pi = state.turn;
+  const p = state.players[pi];
+  if (!p || p.bankrupt) { advanceTurn(state); return true; }
+  bumpV(state);
+  if (state.auction) { applyAction(state, pi, { type: 'passBid' }); return true; }
+  if (state.pendingCard) { state.pendingCard = null; }
+  if (state.pendingBuy !== null) { applyAction(state, pi, { type: 'declineBuy' }); }
+  if (!state.rolled && !p.inJail) { applyAction(state, pi, { type: 'roll' }); }
+  if (p.inJail && !state.rolled) { applyAction(state, pi, { type: 'roll' }); }
+  if (state.pendingBuy !== null) { applyAction(state, pi, { type: 'declineBuy' }); }
+  if (state.rolled && state.pendingBuy === null && !state.auction && p.money >= 0) {
+    advanceTurn(state);
+  }
+  glog(state, `⏱ Время вышло — ход ${p.name} завершён автоматически`);
+  return true;
 }

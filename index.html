@@ -33,6 +33,71 @@
       <div id="lobby-error" class="lobby-error"></div>
     </div>
 
+    <!-- ===== Pre-create settings screen ===== -->
+    <div id="settings-screen" style="display:none">
+      <div class="settings-head">
+        <button id="btn-settings-back" class="icon-btn" aria-label="Назад">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg>
+        </button>
+        <div class="settings-title">Настройки игры</div>
+      </div>
+
+      <div class="settings-body">
+        <div class="set-group">
+          <label class="set-label">Стартовые деньги</label>
+          <div class="seg" id="set-money" role="group">
+            <button class="seg-btn" data-v="1000">₩1000</button>
+            <button class="seg-btn is-on" data-v="1500">₩1500</button>
+            <button class="seg-btn" data-v="2000">₩2000</button>
+            <button class="seg-btn" data-v="2500">₩2500</button>
+          </div>
+        </div>
+
+        <div class="set-group">
+          <label class="set-label">Таймер хода</label>
+          <div class="seg" id="set-timer" role="group">
+            <button class="seg-btn is-on" data-v="0">Выкл</button>
+            <button class="seg-btn" data-v="30">30с</button>
+            <button class="seg-btn" data-v="60">60с</button>
+            <button class="seg-btn" data-v="120">2 мин</button>
+          </div>
+          <div class="set-hint">Если игрок завис или свернул игру — ход завершится сам.</div>
+        </div>
+
+        <div class="set-group">
+          <label class="set-label">Тема доски</label>
+          <div class="seg wrap" id="set-theme" role="group">
+            <button class="seg-btn is-on" data-v="classic">Классика</button>
+            <button class="seg-btn" data-v="midnight">Полночь</button>
+            <button class="seg-btn" data-v="sunset">Закат</button>
+            <button class="seg-btn" data-v="mono">Графит</button>
+          </div>
+        </div>
+
+        <label class="set-toggle">
+          <div><div class="set-toggle-t">Аукцион при отказе</div><div class="set-hint">Отказался от покупки — клетка уходит с молотка всем игрокам.</div></div>
+          <input type="checkbox" id="set-auction"><span class="switch"></span>
+        </label>
+
+        <label class="set-toggle">
+          <div><div class="set-toggle-t">Банк на «Бесплатной стоянке»</div><div class="set-hint">Налоги и штрафы копятся в центре. Попал на Free Parking — забрал всё.</div></div>
+          <input type="checkbox" id="set-pot"><span class="switch"></span>
+        </label>
+
+        <label class="set-toggle">
+          <div><div class="set-toggle-t">Внутренний круг (метро)</div><div class="set-hint">С вокзала можно перепрыгнуть на противоположную сторону доски.</div></div>
+          <input type="checkbox" id="set-metro"><span class="switch"></span>
+        </label>
+
+        <label class="set-toggle">
+          <div><div class="set-toggle-t">Быстрый режим (3-й кубик)</div><div class="set-hint">Добавляет спид-кубик: больше движения и бонусные ходы.</div></div>
+          <input type="checkbox" id="set-speed"><span class="switch"></span>
+        </label>
+      </div>
+
+      <button id="btn-create-confirm" class="btn gold">Создать комнату</button>
+    </div>
+
     <div id="lobby-wait" style="display:none">
       <div class="room-code-label">Код комнаты — отправь друзьям:</div>
       <div class="room-code-row">
