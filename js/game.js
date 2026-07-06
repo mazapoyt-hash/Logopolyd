@@ -25,8 +25,20 @@ function newGameState(lobbyPlayers) {
     chanceDeck: shuffle([...CHANCE_CARDS.keys()]),
     chestDeck: shuffle([...CHEST_CARDS.keys()]),
     log: [],
+    events: [],   // ordered animation events, consumed exactly once by clients
+    evSeq: 0,
     winner: null,
   };
+}
+
+// Push an ordered animation event (dice roll, token move, card draw).
+// Clients replay these strictly in order and exactly once (dedup by seq),
+// which fixes duplicated walks and premature modals on re-broadcasts.
+function pushEv(state, ev) {
+  state.evSeq = (state.evSeq || 0) + 1;
+  if (!state.events) state.events = [];
+  state.events.push({ seq: state.evSeq, ...ev });
+  if (state.events.length > 24) state.events.shift();
 }
 
 function shuffle(a) {
@@ -88,6 +100,7 @@ function movePlayer(state, pi, steps) {
   const p = state.players[pi];
   const old = p.pos;
   p.pos = (p.pos + steps + 40) % 40;
+  pushEv(state, { kind: 'move', pi, from: old, to: p.pos, jump: false });
   if (steps > 0 && p.pos < old) {
     p.money += 200;
     glog(state, `${p.name} проходит GO и получает ${CUR}200`);
@@ -96,17 +109,21 @@ function movePlayer(state, pi, steps) {
 
 function moveTo(state, pi, tileIdx, collectGo = true) {
   const p = state.players[pi];
+  const old = p.pos;
   if (collectGo && tileIdx < p.pos) {
     p.money += 200;
     glog(state, `${p.name} проходит GO и получает ${CUR}200`);
   }
   p.pos = tileIdx;
+  if (old !== tileIdx) pushEv(state, { kind: 'move', pi, from: old, to: tileIdx, jump: true });
 }
 
 function sendToJail(state, pi) {
   const p = state.players[pi];
+  const old = p.pos;
   p.pos = 10; p.inJail = true; p.jailTurns = 0;
   state.doubles = 0;
+  if (old !== 10) pushEv(state, { kind: 'move', pi, from: old, to: 10, jump: true });
   glog(state, `${p.name} отправляется в тюрьму 🚔`);
 }
 
@@ -145,6 +162,9 @@ function drawCard(state, pi, deck, diceSum) {
   state[key]++;
   const p = state.players[pi];
   state.pendingCard = { deck: deck === 'chance' ? 'ШАНС' : 'ОБЩЕСТВЕННАЯ КАЗНА', text: card.text, player: p.name };
+  // card event goes BEFORE any moves the card causes, so clients show the
+  // card between "landed on Chance" and "flew to the new tile"
+  pushEv(state, { kind: 'card', deck: state.pendingCard.deck, text: card.text, player: p.name });
   glog(state, `${p.name} тянет карту: «${card.text}»`);
   switch (card.act) {
     case 'money': p.money += card.v; break;
@@ -207,7 +227,7 @@ function applyAction(state, pi, a) {
       if (!isTurn || state.rolled || state.pendingBuy !== null) return;
       const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
       state.dice = [d1, d2];
-      state.diceSeq = (state.diceSeq || 0) + 1;
+      pushEv(state, { kind: 'dice', d: [d1, d2], pi });
       const isDouble = d1 === d2;
       if (p.inJail) {
         p.jailTurns++;
