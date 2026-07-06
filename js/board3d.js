@@ -67,13 +67,13 @@ const B3D = (() => {
 
   function drawBoardTexture(state) {
     const ctx = texCtx;
-    // mint field
-    ctx.fillStyle = '#cde3d2';
+    // mint field (deep enough to survive studio lighting)
+    ctx.fillStyle = '#9cc7aa';
     ctx.fillRect(0, 0, TEX, TEX);
-    // subtle vignette on the field
-    const vg = ctx.createRadialGradient(TEX / 2, TEX / 2, TEX * 0.15, TEX / 2, TEX / 2, TEX * 0.72);
-    vg.addColorStop(0, 'rgba(255,255,255,0.10)');
-    vg.addColorStop(1, 'rgba(40,80,55,0.14)');
+    // darkening vignette only (no white center, it washes out under light)
+    const vg = ctx.createRadialGradient(TEX / 2, TEX / 2, TEX * 0.2, TEX / 2, TEX / 2, TEX * 0.72);
+    vg.addColorStop(0, 'rgba(0,0,0,0)');
+    vg.addColorStop(1, 'rgba(25,65,40,0.22)');
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, TEX, TEX);
 
@@ -82,7 +82,7 @@ const B3D = (() => {
       const px = (R.x - R.w / 2 + HALF) * K, py = (R.z - R.d / 2 + HALF) * K;
       const pw = R.w * K, ph = R.d * K;
       // tile bg + border
-      ctx.fillStyle = '#f3efdd';
+      ctx.fillStyle = '#e9e2c8';
       ctx.fillRect(px, py, pw, ph);
       ctx.strokeStyle = '#2a2a26';
       ctx.lineWidth = 4;
@@ -343,15 +343,15 @@ const B3D = (() => {
       renderer.shadowMap.enabled = true;
       renderer.shadowMap.type = THREE.PCFSoftShadowMap;
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      renderer.toneMappingExposure = 1.06;
+      renderer.toneMappingExposure = 0.92;
       renderer.outputEncoding = THREE.sRGBEncoding;
       container.appendChild(renderer.domElement);
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(42, 1, 0.1, 100);
 
       // lights: warm key + cool fill, soft shadows
-      scene.add(new THREE.HemisphereLight(0xfff2dd, 0x2a2119, 0.75));
-      const key = new THREE.DirectionalLight(0xffd9a8, 1.5);
+      scene.add(new THREE.HemisphereLight(0xfff2dd, 0x2a2119, 0.55));
+      const key = new THREE.DirectionalLight(0xffd9a8, 1.15);
       key.position.set(-7, 12, 6);
       key.castShadow = true;
       key.shadow.mapSize.set(2048, 2048);
@@ -598,15 +598,6 @@ const B3D = (() => {
     toggleFlat() {
       cam.flat = !cam.flat;
       goOverview();
-    },
-
-    _dbg() {
-      return {
-        camPos: camera.position.toArray(), camLook: curLook.toArray(),
-        targetPos: cam.pos.toArray(), children: scene.children.length,
-        canvases: container.querySelectorAll('canvas').length,
-        size: [renderer.domElement.width, renderer.domElement.height],
-      };
     },
   };
 })();
