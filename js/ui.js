@@ -35,7 +35,7 @@ const snd = (() => {
 })();
 
 // ---------- FX engine: token movement, 3D dice, cinematic camera ----------
-const fxq = { chain: Promise.resolve(), disp: null, diceSeq: 0, money: null };
+const fxq = { chain: Promise.resolve(), disp: null, lastSeq: 0, money: null };
 let fxBusy = 0;
 function queueFx(fn) {
   fxBusy++;
@@ -97,13 +97,13 @@ function camReset() {
   bt.style.removeProperty('--zoom'); bt.style.setProperty('--panx', '0px'); bt.style.setProperty('--pany', '0px');
 }
 
-async function walkToken(s, pi, from, to) {
+async function walkToken(s, pi, from, to, jump = false) {
   const el = document.getElementById('ptok-' + pi);
   if (!el) { fxq.disp[pi] = to; return; }
   let steps = (to - from + 40) % 40, dir = 1;
   if (steps >= 37) { dir = -1; steps = 40 - steps; }
   camFocus(to, 1.3);
-  if (steps === 0 || steps > 12) {
+  if (jump || steps === 0 || steps > 12) {
     // teleport (jail, card): one big arc jump
     retrigger(el, 'fly');
     setTokenPos(pi, to);
@@ -166,10 +166,10 @@ function setDice(vals, animate) {
 function renderFx(s) {
   ensureTokens(s);
   if (!fxq.disp) {
-    // first state: snap everything into place
+    // first state: snap everything into place, skip past all existing events
     fxq.disp = s.players.map(p => p.pos);
     fxq.money = s.players.map(p => p.money);
-    fxq.diceSeq = s.diceSeq || 0;
+    fxq.lastSeq = s.evSeq || 0;
     placeAllTokens(s);
     setDice(s.dice, false);
     return;
@@ -177,20 +177,31 @@ function renderFx(s) {
   // money change chime
   if (fxq.money && s.players.some((p, i) => fxq.money[i] !== undefined && p.money !== fxq.money[i])) snd.cash();
   fxq.money = s.players.map(p => p.money);
-  // dice tumble on new roll
-  if ((s.diceSeq || 0) !== fxq.diceSeq) {
-    fxq.diceSeq = s.diceSeq || 0;
-    queueFx(async () => { snd.dice(); setDice(s.dice, true); await sleep(1050); });
-  } else if (!s.dice) {
-    queueFx(async () => setDice(null, false));
-  }
-  // token movement
-  let moved = false;
-  s.players.forEach((p, pi) => {
-    const from = fxq.disp[pi];
-    if (!p.bankrupt && p.pos !== from) { moved = true; queueFx(() => walkToken(s, pi, from, p.pos)); }
+
+  // Consume new animation events exactly once, strictly in order.
+  // Re-broadcasts of the same state are harmless: seq dedup skips them.
+  const evs = (s.events || []).filter(e => e.seq > (fxq.lastSeq || 0));
+  if (evs.length) fxq.lastSeq = evs[evs.length - 1].seq;
+  evs.forEach(ev => {
+    if (ev.kind === 'dice') {
+      queueFx(async () => { snd.dice(); setDice(ev.d, true); await sleep(1050); });
+    } else if (ev.kind === 'move') {
+      queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump));
+    } else if (ev.kind === 'card') {
+      queueFx(async () => {
+        cardFx.key = ev.deck + ev.text + ev.player;
+        showCardFx(ev);
+        await sleep(1500); // let players read before any follow-up move plays
+      });
+    }
   });
-  if (!moved && fxBusy === 0) placeAllTokens(s);
+
+  if (fxBusy === 0) {
+    // idle: keep display state in sync (resize, missed snapshots)
+    if (!s.dice) setDice(null, false);
+    s.players.forEach((p, pi) => { if (!p.bankrupt) fxq.disp[pi] = p.pos; });
+    placeAllTokens(s);
+  }
 }
 
 // --- confetti ---
@@ -213,18 +224,18 @@ function confettiBurst() {
 }
 
 // ---------- Card draw animation ----------
-function showCardFx(s) {
-  const isChance = s.pendingCard.deck === 'ШАНС';
+function showCardFx(card0) {
+  const isChance = card0.deck === 'ШАНС';
   const cls = isChance ? 'chance' : 'chest';
   const deckEl = $(isChance ? '#deck-chance' : '#deck-chest');
   const fx = $('#card-fx'), card = $('#fx-card'), inner = $('#fx-inner');
   const back = $('#fx-back'), front = $('#fx-front');
   back.className = 'fx-face fx-back ' + cls;
-  back.innerHTML = `<div class="fx-big">${isChance ? '❓' : '📦'}</div><div>${s.pendingCard.deck}</div>`;
-  front.innerHTML = `<div class="fx-front-head ${cls}">${isChance ? '❓' : '📦'} ${s.pendingCard.deck}</div>
-    <div class="fx-front-body">${esc(s.pendingCard.text)}</div>
-    <div class="fx-front-foot"><div class="fx-who">Карта для: ${esc(s.pendingCard.player)}</div><span id="fx-ok"></span></div>`;
-  updateCardFxButton(s);
+  back.innerHTML = `<div class="fx-big">${isChance ? '❓' : '📦'}</div><div>${card0.deck}</div>`;
+  front.innerHTML = `<div class="fx-front-head ${cls}">${isChance ? '❓' : '📦'} ${card0.deck}</div>
+    <div class="fx-front-body">${esc(card0.text)}</div>
+    <div class="fx-front-foot"><div class="fx-who">Карта для: ${esc(card0.player)}</div><span id="fx-ok"></span></div>`;
+  if (NET.state) updateCardFxButton(NET.state);
   snd.card();
   // start small at the deck's on-screen position, card back up
   const r = deckEl.getBoundingClientRect();
@@ -316,10 +327,10 @@ function render() {
   $('#game').style.display = 'flex';
   renderPlaques();
   renderTiles();
+  renderFx(NET.state);   // queue animations FIRST so fxBusy gates modals below
   renderCenter();
   renderLog();
   renderModals();
-  renderFx(NET.state);
 }
 
 function renderLobby() {
@@ -402,8 +413,15 @@ function renderCenter() {
 
 function renderLog() {
   const s = NET.state;
-  $('#log').innerHTML = s.log.slice(-7).map(l => `<div>${esc(l)}</div>`).join('');
+  $('#log').innerHTML = s.log.slice(-5).map(l => `<div>${esc(l)}</div>`).join('');
   $('#log').scrollTop = 1e6;
+}
+
+function setLogCollapsed(collapsed) {
+  $('#log-wrap').classList.toggle('collapsed', collapsed);
+  $('#log-arrow').textContent = collapsed ? '▸' : '▾';
+  $('#log-toggle').setAttribute('aria-expanded', String(!collapsed));
+  localStorage.setItem('mono-log', collapsed ? '1' : '0');
 }
 
 // ---------- Modals ----------
@@ -422,8 +440,10 @@ function renderModals() {
   }
 
   if (s.pendingCard) {
+    // the reveal animation is played by the FX queue (card event);
+    // here we only handle a fallback (joined mid-card) and the OK button
     const key = s.pendingCard.deck + s.pendingCard.text + s.pendingCard.player;
-    if (key !== cardFx.key || !cardFx.visible) { cardFx.key = key; showCardFx(s); }
+    if (!cardFx.visible && key !== cardFx.key) { cardFx.key = key; showCardFx(s.pendingCard); }
     else updateCardFxButton(s);
     if (!modalLocked) closeModal();
     return;
@@ -677,6 +697,11 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelector('.board-tilt').classList.toggle('flat');
     setTimeout(() => NET.state && placeAllTokens(NET.state), 60);
   });
+
+  // log: collapsible, collapsed by default on small screens
+  const savedLog = localStorage.getItem('mono-log');
+  setLogCollapsed(savedLog !== null ? savedLog === '1' : window.innerWidth < 700);
+  $('#log-toggle').addEventListener('click', () => setLogCollapsed(!$('#log-wrap').classList.contains('collapsed')));
 
   $('#btn-sound').textContent = snd.muted() ? '🔇' : '🔊';
   $('#btn-sound').addEventListener('click', () => {
