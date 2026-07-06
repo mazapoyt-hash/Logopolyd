@@ -292,6 +292,56 @@ const B3D = (() => {
     return g;
   }
 
+  // ---------- procedural wood-plank texture (no ugly tiling) ----------
+  function makeWoodTexture() {
+    const S = 1024, c = document.createElement('canvas');
+    c.width = c.height = S;
+    const x = c.getContext('2d');
+    // base warm walnut
+    x.fillStyle = '#5c3d24';
+    x.fillRect(0, 0, S, S);
+    const planks = 6, pw = S / planks;
+    const tones = ['#6b4a2c', '#5a3c22', '#734f30', '#4f351f', '#65462a', '#5e3f26'];
+    for (let p = 0; p < planks; p++) {
+      const px = p * pw;
+      // plank base tone
+      x.fillStyle = tones[p % tones.length];
+      x.fillRect(px, 0, pw, S);
+      // long grain streaks
+      for (let g = 0; g < 90; g++) {
+        const gx = px + Math.random() * pw;
+        x.strokeStyle = `rgba(${30 + Math.random() * 30},${18 + Math.random() * 20},8,${0.05 + Math.random() * 0.12})`;
+        x.lineWidth = 0.5 + Math.random() * 1.6;
+        x.beginPath();
+        let yy = 0, cx = gx;
+        x.moveTo(cx, yy);
+        while (yy < S) {
+          yy += 18 + Math.random() * 26;
+          cx += (Math.random() - 0.5) * 5;
+          x.lineTo(cx, yy);
+        }
+        x.stroke();
+      }
+      // occasional knot
+      if (Math.random() < 0.5) {
+        const kx = px + pw * (0.3 + Math.random() * 0.4), ky = Math.random() * S;
+        const rg = x.createRadialGradient(kx, ky, 1, kx, ky, 12 + Math.random() * 10);
+        rg.addColorStop(0, 'rgba(40,24,10,0.7)');
+        rg.addColorStop(1, 'rgba(40,24,10,0)');
+        x.fillStyle = rg;
+        x.beginPath(); x.arc(kx, ky, 22, 0, Math.PI * 2); x.fill();
+      }
+      // dark seam between planks
+      x.fillStyle = 'rgba(20,12,5,0.55)';
+      x.fillRect(px, 0, 2, S);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.encoding = THREE.sRGBEncoding;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return tex;
+  }
+
   // ---------- table decoration (cards, money, cup, spare tokens) ----------
   function buildCardStack(colors, n = 16) {
     const g = new THREE.Group();
@@ -446,29 +496,34 @@ const B3D = (() => {
       rim.position.set(8, 6, -9);
       scene.add(rim);
 
-      // table (wood) — many small repeats so there is no visible central seam
-      const woodTex = new THREE.TextureLoader().load('assets/table_wood.png');
-      woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
-      woodTex.repeat.set(20, 20); // small repeats read as fine parquet, no central seam
-      woodTex.encoding = THREE.sRGBEncoding;
+      // table: procedural walnut planks (grain runs along one axis, no tiling seam)
+      const woodTex = makeWoodTexture();
+      woodTex.repeat.set(3, 3);
       const table = new THREE.Mesh(
         new THREE.PlaneGeometry(80, 80),
-        new THREE.MeshStandardMaterial({ map: woodTex, color: '#b98a55', roughness: 0.55, metalness: 0.04 })
+        new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.62, metalness: 0.05 })
       );
       table.rotation.x = -Math.PI / 2;
-      table.position.y = -0.02;
+      table.position.y = -0.03;
       table.receiveShadow = true;
       scene.add(table);
 
-      // felt play-mat: snug around the board so decor sits on the wood outside it
+      // play-mat: dark green felt with a subtle raised leather border ring
       const mat = new THREE.Mesh(
-        new THREE.CircleGeometry(SIZE * 0.74, 64),
-        new THREE.MeshStandardMaterial({ color: '#123125', roughness: 0.95, metalness: 0 })
+        new THREE.CircleGeometry(SIZE * 0.9, 72),
+        new THREE.MeshStandardMaterial({ color: '#0f3327', roughness: 0.98, metalness: 0 })
       );
       mat.rotation.x = -Math.PI / 2;
-      mat.position.y = -0.005;
+      mat.position.y = -0.012;
       mat.receiveShadow = true;
       scene.add(mat);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(SIZE * 0.87, SIZE * 0.9, 72),
+        new THREE.MeshStandardMaterial({ color: '#7a5a2e', roughness: 0.5, metalness: 0.2 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -0.008;
+      scene.add(ring);
 
       buildTableDecor();
 
