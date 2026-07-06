@@ -46,121 +46,27 @@ function queueFx(fn) {
   });
 }
 
-function tileXY(i) {
-  const board = $('#board'), tile = board.querySelector(`.tile[data-idx="${i}"]`);
-  return { x: tile.offsetLeft + tile.offsetWidth / 2, y: tile.offsetTop + tile.offsetHeight * 0.62 };
-}
-
+// All board visuals live in the Three.js scene (js/board3d.js).
 function ensureTokens(s) {
-  const layer = $('#token-layer');
-  s.players.forEach((p, pi) => {
-    let el = document.getElementById('ptok-' + pi);
-    if (!el) {
-      el = document.createElement('div');
-      el.className = 'ptok' + (p.peerId === NET.myPeerId ? ' mytok' : '');
-      el.id = 'ptok-' + pi;
-      el.innerHTML = `<div class="ptok-tilt"><img src="assets/${TOKEN_IMGS[p.color]}.png" alt=""></div>`;
-      layer.appendChild(el);
-    }
-    el.style.display = p.bankrupt ? 'none' : '';
-  });
-}
-
-function setTokenPos(pi, tileIdx, group) {
-  const el = document.getElementById('ptok-' + pi);
-  if (!el) return;
-  const { x, y } = tileXY(tileIdx);
-  const n = group ? group.length : 1, k = group ? group.indexOf(pi) : 0;
-  const w = $('#board').offsetWidth * 0.022;
-  el.style.left = (x + (k - (n - 1) / 2) * w * 1.6) + 'px';
-  el.style.top = (y + (k % 2) * w * 0.5) + 'px';
+  B3D.syncPlayers(s.players, myPlayerIndex());
 }
 
 function placeAllTokens(s) {
   if (!fxq.disp) return;
-  const groups = {};
-  s.players.forEach((p, pi) => { if (!p.bankrupt) (groups[fxq.disp[pi]] = groups[fxq.disp[pi]] || []).push(pi); });
-  s.players.forEach((p, pi) => { if (!p.bankrupt) setTokenPos(pi, fxq.disp[pi], groups[fxq.disp[pi]]); });
-}
-
-function retrigger(el, cls) { el.classList.remove(cls); void el.offsetWidth; el.classList.add(cls); }
-
-function camFocus(tileIdx, zoom) {
-  const bt = document.querySelector('.board-tilt'), b = $('#board');
-  const { x, y } = tileXY(tileIdx);
-  bt.style.setProperty('--zoom', zoom);
-  bt.style.setProperty('--panx', ((b.offsetWidth / 2 - x) * 0.42) + 'px');
-  bt.style.setProperty('--pany', ((b.offsetHeight / 2 - y) * 0.42) + 'px');
-}
-function camReset() {
-  const bt = document.querySelector('.board-tilt');
-  bt.style.removeProperty('--zoom'); bt.style.setProperty('--panx', '0px'); bt.style.setProperty('--pany', '0px');
+  B3D.snapTokens(fxq.disp, s.players);
 }
 
 async function walkToken(s, pi, from, to, jump = false) {
-  const el = document.getElementById('ptok-' + pi);
-  if (!el) { fxq.disp[pi] = to; return; }
-  let steps = (to - from + 40) % 40, dir = 1;
-  if (steps >= 37) { dir = -1; steps = 40 - steps; }
-  camFocus(to, 1.3);
-  if (jump || steps === 0 || steps > 12) {
-    // teleport (jail, card): one big arc jump
-    retrigger(el, 'fly');
-    setTokenPos(pi, to);
-    snd.card();
-    await sleep(680);
-    el.classList.remove('fly');
-  } else {
-    for (let k = 1; k <= steps; k++) {
-      const t = (from + dir * k + 40) % 40;
-      retrigger(el, 'hop');
-      setTokenPos(pi, t);
-      snd.hop();
-      await sleep(215);
-    }
-    el.classList.remove('hop');
-  }
+  await B3D.moveToken(pi, from, to, {
+    jump,
+    onHop: kind => (kind === 'fly' ? snd.card() : snd.hop()),
+  });
   fxq.disp[pi] = to;
   placeAllTokens(s);
-  await sleep(500);
-  camReset();
 }
 
-// --- 3D dice ---
-const DIE_ORI = { 1: [0, 0], 2: [90, 0], 3: [0, -90], 4: [0, 90], 5: [-90, 0], 6: [0, 180] };
-function buildDie() {
-  const d = document.createElement('div');
-  d.className = 'die3d';
-  const PIPS = { 1: [4], 2: [0, 8], 3: [0, 4, 8], 4: [0, 2, 6, 8], 5: [0, 2, 4, 6, 8], 6: [0, 2, 3, 5, 6, 8] };
-  for (let f = 1; f <= 6; f++) {
-    const face = document.createElement('div');
-    face.className = 'dface f' + f;
-    for (let c = 0; c < 9; c++) face.innerHTML += `<div class="pip${PIPS[f].includes(c) ? '' : ' off'}"></div>`;
-    d.appendChild(face);
-  }
-  return d;
-}
-function ensureDice() {
-  const row = $('#dice');
-  if (!row.querySelector('.die3d')) { row.appendChild(buildDie()); row.appendChild(buildDie()); }
-  return row.querySelectorAll('.die3d');
-}
-function setDice(vals, animate) {
-  const dice = ensureDice();
-  $('#dice').style.visibility = vals ? 'visible' : 'hidden';
-  if (!vals) return;
-  dice.forEach((d, i) => {
-    const [ax, ay] = DIE_ORI[vals[i]];
-    if (animate) {
-      d.style.transition = 'none';
-      d.style.transform = `rotateX(${ax - 720 - Math.floor(Math.random() * 2) * 360}deg) rotateY(${ay - 1080}deg) scale(.4)`;
-      void d.offsetWidth;
-      d.style.transition = '';
-      d.style.transform = `rotateX(${ax}deg) rotateY(${ay}deg) scale(1)`;
-    } else {
-      d.style.transform = `rotateX(${ax}deg) rotateY(${ay}deg)`;
-    }
-  });
+function setDice(vals) {
+  B3D.setDice(vals);
 }
 
 function renderFx(s) {
@@ -171,7 +77,7 @@ function renderFx(s) {
     fxq.money = s.players.map(p => p.money);
     fxq.lastSeq = s.evSeq || 0;
     placeAllTokens(s);
-    setDice(s.dice, false);
+    setDice(s.dice);
     return;
   }
   // money change chime
@@ -184,7 +90,7 @@ function renderFx(s) {
   if (evs.length) fxq.lastSeq = evs[evs.length - 1].seq;
   evs.forEach(ev => {
     if (ev.kind === 'dice') {
-      queueFx(async () => { snd.dice(); setDice(ev.d, true); await sleep(1050); });
+      queueFx(async () => { snd.dice(); await B3D.rollDice(ev.d); await sleep(150); });
     } else if (ev.kind === 'move') {
       queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump));
     } else if (ev.kind === 'card') {
@@ -198,7 +104,7 @@ function renderFx(s) {
 
   if (fxBusy === 0) {
     // idle: keep display state in sync (resize, missed snapshots)
-    if (!s.dice) setDice(null, false);
+    if (!s.dice) setDice(null);
     s.players.forEach((p, pi) => { if (!p.bankrupt) fxq.disp[pi] = p.pos; });
     placeAllTokens(s);
   }
@@ -227,7 +133,6 @@ function confettiBurst() {
 function showCardFx(card0) {
   const isChance = card0.deck === 'ШАНС';
   const cls = isChance ? 'chance' : 'chest';
-  const deckEl = $(isChance ? '#deck-chance' : '#deck-chest');
   const fx = $('#card-fx'), card = $('#fx-card'), inner = $('#fx-inner');
   const back = $('#fx-back'), front = $('#fx-front');
   back.className = 'fx-face fx-back ' + cls;
@@ -237,8 +142,8 @@ function showCardFx(card0) {
     <div class="fx-front-foot"><div class="fx-who">Карта для: ${esc(card0.player)}</div><span id="fx-ok"></span></div>`;
   if (NET.state) updateCardFxButton(NET.state);
   snd.card();
-  // start small at the deck's on-screen position, card back up
-  const r = deckEl.getBoundingClientRect();
+  // start small at the deck's projected on-screen position, card back up
+  const r = B3D.deckScreenRect(isChance);
   fx.classList.remove('animating', 'leaving', 'dim');
   fx.style.display = 'block';
   card.style.left = r.left + 'px'; card.style.top = r.top + 'px';
@@ -274,57 +179,19 @@ function hideCardFx() {
   }, 470);
 }
 
-// ---------- Board construction ----------
-function gridPos(i) {
-  if (i <= 10) return { r: 11, c: 11 - i };
-  if (i <= 20) return { r: 11 - (i - 10), c: 1 };
-  if (i <= 30) return { r: 1, c: i - 19 };
-  return { r: i - 29, c: 11 };
-}
-
+// ---------- Board construction (Three.js scene) ----------
 function buildBoard() {
-  const board = $('#board');
-  TILES.forEach((t, i) => {
-    const d = document.createElement('div');
-    const { r, c } = gridPos(i);
-    d.className = 'tile ' + (i % 10 === 0 ? 'corner ' : '') + 'side-' + sideOf(i);
-    d.style.gridRow = r; d.style.gridColumn = c;
-    d.dataset.idx = i;
-    let inner = '';
-    if (t.type === 'prop') inner += `<div class="tile-bar" style="background:${GROUP_COLORS[t.group]}"></div>`;
-    inner += `<div class="tile-name">${tileEmoji(t)}${shortName(t)}</div>`;
-    if (t.price) inner += `<div class="tile-price">${CUR}${t.price}</div>`;
-    inner += `<div class="tile-houses"></div><div class="tile-tokens"></div><div class="tile-owner"></div>`;
-    d.innerHTML = inner;
-    d.addEventListener('click', () => showTileInfo(i));
-    board.appendChild(d);
-  });
-}
-
-function sideOf(i) {
-  if (i <= 10) return 'bottom';
-  if (i <= 20) return 'left';
-  if (i <= 30) return 'top';
-  return 'right';
-}
-
-function tileEmoji(t) {
-  const m = { go: '🏁 ', chest: '📦 ', chance: '❓ ', tax: '💰 ', rail: '🚂 ', util: '⚡ ', jail: '🚔 ', free: '🅿️ ', gotojail: '👮 ' };
-  if (t.type === 'util' && t.name.includes('Water')) return '🚰 ';
-  return m[t.type] || '';
-}
-
-function shortName(t) {
-  return t.name.replace(' Avenue', ' Ave').replace(' Railroad', ' RR').replace('Community Chest', 'Казна').replace('Chance', 'Шанс')
-    .replace('Income Tax', 'Налог').replace('Luxury Tax', 'Налог на роскошь').replace('Jail / Visiting', 'Тюрьма')
-    .replace('Free Parking', 'Парковка').replace('Go To Jail', 'В тюрьму');
+  B3D.init(document.getElementById('board3d-wrap'), { onTileClick: showTileInfo });
 }
 
 // ---------- Rendering ----------
 function render() {
   if (!NET.state) { renderLobby(); return; }
+  const wasHidden = $('#game').style.display === 'none';
   $('#lobby').style.display = 'none';
   $('#game').style.display = 'flex';
+  if (wasHidden) B3D.resize(); // canvas was 0x0 while hidden
+  $('#host-away').style.display = NET.hostAway ? 'flex' : 'none';
   renderPlaques();
   renderTiles();
   renderFx(NET.state);   // queue animations FIRST so fxBusy gates modals below
@@ -364,22 +231,7 @@ function renderPlaques() {
 }
 
 function renderTiles() {
-  const s = NET.state;
-  document.querySelectorAll('.tile').forEach(d => {
-    const i = +d.dataset.idx;
-    const ps = s.props[i];
-    const ownerEl = d.querySelector('.tile-owner');
-    const housesEl = d.querySelector('.tile-houses');
-    if (ps) {
-      if (ps.owner >= 0) {
-        const col = PLAYER_COLORS[s.players[ps.owner].color];
-        ownerEl.style.background = col.solid;
-        ownerEl.style.display = 'block';
-        d.classList.toggle('mortgaged', ps.mortgaged);
-      } else { ownerEl.style.display = 'none'; d.classList.remove('mortgaged'); }
-      housesEl.innerHTML = ps.houses === 5 ? '<span class="hotel3d"></span>' : '<span class="house"></span>'.repeat(ps.houses);
-    }
-  });
+  B3D.updateProps(NET.state);
 }
 
 function renderCenter() {
@@ -652,6 +504,22 @@ document.addEventListener('DOMContentLoaded', () => {
   NET.onUpdate = render;
   NET.onChat = addChat;
 
+  // auto-resume a saved session (page was refreshed mid-game)
+  const resuming = tryResume((err) => {
+    if (err) {
+      $('#lobby-form').style.display = 'block';
+      $('#lobby-error').textContent = '';
+      return;
+    }
+    render();
+  });
+  if (resuming) {
+    $('#lobby-form').style.display = 'none';
+    $('#lobby-error').textContent = '';
+    $('#lobby-wait').style.display = 'block';
+    $('#wait-note').textContent = 'Переподключение к игре…';
+  }
+
   $('#btn-create').addEventListener('click', () => {
     const name = $('#inp-name').value.trim();
     if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
@@ -693,10 +561,7 @@ document.addEventListener('DOMContentLoaded', () => {
   $('#act-redeem').addEventListener('click', () => openManage('redeem'));
   $('#act-trade').addEventListener('click', () => openTrade());
 
-  $('#btn-menu').addEventListener('click', () => {
-    document.querySelector('.board-tilt').classList.toggle('flat');
-    setTimeout(() => NET.state && placeAllTokens(NET.state), 60);
-  });
+  $('#btn-menu').addEventListener('click', () => B3D.toggleFlat());
 
   // log: collapsible, collapsed by default on small screens
   const savedLog = localStorage.getItem('mono-log');
