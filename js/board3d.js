@@ -100,6 +100,19 @@ const B3D = (() => {
         ctx.restore();
       }
 
+      // OWNER highlight: tint the whole tile + thick colored frame (readable from overview)
+      if (ps && ps.owner >= 0 && state.players[ps.owner]) {
+        const oc = PLAYER_COLORS[state.players[ps.owner].color].solid;
+        ctx.save();
+        ctx.globalAlpha = 0.24;
+        ctx.fillStyle = oc;
+        ctx.fillRect(px, py, pw, ph);
+        ctx.restore();
+        ctx.strokeStyle = oc;
+        ctx.lineWidth = 14;
+        ctx.strokeRect(px + 9, py + 9, pw - 18, ph - 18);
+      }
+
       // rotate ctx so text reads facing the board center (like a real board)
       ctx.save();
       ctx.translate(px + pw / 2, py + ph / 2);
@@ -134,12 +147,6 @@ const B3D = (() => {
         ctx.strokeStyle = '#2a2a26'; ctx.lineWidth = 3;
         ctx.strokeRect(-lw / 2 + 4, -lh / 2 + 4, lw - 8, lh * 0.24);
       }
-      // owner strip on the outer edge (local bottom)
-      if (ps && ps.owner >= 0 && state.players[ps.owner]) {
-        ctx.fillStyle = PLAYER_COLORS[state.players[ps.owner].color].solid;
-        ctx.fillRect(-lw / 2 + 4, lh / 2 - lh * 0.11, lw - 8, lh * 0.11 - 4);
-      }
-
       // icon for special tiles
       const icons = { chest: '▣', chance: '?', tax: '◆', rail: '▬', util: '◉', };
       if (icons[t.type]) {
@@ -150,17 +157,17 @@ const B3D = (() => {
       }
 
       // name
-      ctx.fillStyle = '#1d1c18';
-      ctx.font = `700 ${Math.round(K * 0.115)}px Rubik, sans-serif`;
+      ctx.fillStyle = '#161510';
+      ctx.font = `800 ${Math.round(K * 0.15)}px Rubik, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const lines = wrap(ctx, shortName(t), lw - 18);
-      const nameY = t.type === 'prop' ? -lh * 0.05 : lh * 0.13;
-      lines.forEach((ln, li) => ctx.fillText(ln, 0, nameY + li * K * 0.135));
+      const lines = wrap(ctx, shortName(t), lw - 14);
+      const nameY = t.type === 'prop' ? -lh * 0.03 : lh * 0.13;
+      lines.forEach((ln, li) => ctx.fillText(ln, 0, nameY + li * K * 0.165));
       // price
       if (t.price) {
-        ctx.fillStyle = '#3a382f';
-        ctx.font = `600 ${Math.round(K * 0.105)}px Rubik, sans-serif`;
-        ctx.fillText(CUR + t.price, 0, lh / 2 - lh * 0.17);
+        ctx.fillStyle = '#2c2a20';
+        ctx.font = `700 ${Math.round(K * 0.135)}px Rubik, sans-serif`;
+        ctx.fillText(CUR + t.price, 0, lh / 2 - lh * 0.15);
       }
       ctx.restore();
     });
@@ -285,6 +292,130 @@ const B3D = (() => {
     return g;
   }
 
+  // ---------- procedural wood-plank texture (no ugly tiling) ----------
+  function makeWoodTexture() {
+    const S = 1024, c = document.createElement('canvas');
+    c.width = c.height = S;
+    const x = c.getContext('2d');
+    // base warm walnut
+    x.fillStyle = '#5c3d24';
+    x.fillRect(0, 0, S, S);
+    const planks = 6, pw = S / planks;
+    const tones = ['#6b4a2c', '#5a3c22', '#734f30', '#4f351f', '#65462a', '#5e3f26'];
+    for (let p = 0; p < planks; p++) {
+      const px = p * pw;
+      // plank base tone
+      x.fillStyle = tones[p % tones.length];
+      x.fillRect(px, 0, pw, S);
+      // long grain streaks
+      for (let g = 0; g < 90; g++) {
+        const gx = px + Math.random() * pw;
+        x.strokeStyle = `rgba(${30 + Math.random() * 30},${18 + Math.random() * 20},8,${0.05 + Math.random() * 0.12})`;
+        x.lineWidth = 0.5 + Math.random() * 1.6;
+        x.beginPath();
+        let yy = 0, cx = gx;
+        x.moveTo(cx, yy);
+        while (yy < S) {
+          yy += 18 + Math.random() * 26;
+          cx += (Math.random() - 0.5) * 5;
+          x.lineTo(cx, yy);
+        }
+        x.stroke();
+      }
+      // occasional knot
+      if (Math.random() < 0.5) {
+        const kx = px + pw * (0.3 + Math.random() * 0.4), ky = Math.random() * S;
+        const rg = x.createRadialGradient(kx, ky, 1, kx, ky, 12 + Math.random() * 10);
+        rg.addColorStop(0, 'rgba(40,24,10,0.7)');
+        rg.addColorStop(1, 'rgba(40,24,10,0)');
+        x.fillStyle = rg;
+        x.beginPath(); x.arc(kx, ky, 22, 0, Math.PI * 2); x.fill();
+      }
+      // dark seam between planks
+      x.fillStyle = 'rgba(20,12,5,0.55)';
+      x.fillRect(px, 0, 2, S);
+    }
+    const tex = new THREE.CanvasTexture(c);
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.encoding = THREE.sRGBEncoding;
+    tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
+    return tex;
+  }
+
+  // ---------- table decoration (cards, money, cup, spare tokens) ----------
+  function buildCardStack(colors, n = 16) {
+    const g = new THREE.Group();
+    const w = 1.5, d = 1.0;
+    for (let i = 0; i < n; i++) {
+      const c = colors[i % colors.length];
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(w, 0.02, d),
+        new THREE.MeshStandardMaterial({ color: i === n - 1 ? '#f7f2e2' : c, roughness: 0.7 })
+      );
+      m.position.set((Math.random() - 0.5) * 0.06, 0.01 + i * 0.02, (Math.random() - 0.5) * 0.05);
+      m.rotation.y = (Math.random() - 0.5) * 0.06;
+      m.castShadow = true;
+      g.add(m);
+    }
+    return g;
+  }
+  function buildMoneyStack(color, n = 12) {
+    const g = new THREE.Group();
+    for (let i = 0; i < n; i++) {
+      const m = new THREE.Mesh(
+        new THREE.BoxGeometry(1.9, 0.012, 0.85),
+        new THREE.MeshStandardMaterial({ color, roughness: 0.8 })
+      );
+      m.position.set((Math.random() - 0.5) * 0.1, 0.006 + i * 0.012, (Math.random() - 0.5) * 0.08);
+      m.rotation.y = (Math.random() - 0.5) * 0.12;
+      m.castShadow = true;
+      g.add(m);
+    }
+    return g;
+  }
+  function buildCup() {
+    const g = new THREE.Group();
+    const cream = new THREE.MeshStandardMaterial({ color: '#f3ede0', roughness: 0.35 });
+    const saucer = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.66, 0.06, 32), cream);
+    saucer.position.y = 0.03; saucer.castShadow = saucer.receiveShadow = true;
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.34, 0.5, 32), cream);
+    body.position.y = 0.31; body.castShadow = true;
+    const coffee = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.02, 32),
+      new THREE.MeshStandardMaterial({ color: '#4a2c17', roughness: 0.4 }));
+    coffee.position.y = 0.55;
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.17, 0.05, 12, 24), cream);
+    handle.position.set(0.46, 0.32, 0); handle.rotation.y = Math.PI / 2; handle.castShadow = true;
+    g.add(saucer, body, coffee, handle);
+    return g;
+  }
+
+  function buildTableDecor() {
+    const decor = new THREE.Group();
+    // stacks of title-deed cards (grouped by property colors)
+    const groupCols = Object.values(GROUP_COLORS);
+    const cards1 = buildCardStack([groupCols[1], groupCols[2], groupCols[3]]);
+    cards1.position.set(-10.4, 0, 8.0); cards1.rotation.y = 0.5;
+    const cards2 = buildCardStack([groupCols[4], groupCols[5], groupCols[6]]);
+    cards2.position.set(-8.6, 0, 9.6); cards2.rotation.y = -0.3;
+    decor.add(cards1, cards2);
+    // money bundles
+    const m1 = buildMoneyStack('#e7c85a'); m1.position.set(10.2, 0, -8.2); m1.rotation.y = -0.5;
+    const m2 = buildMoneyStack('#8fc98a', 9); m2.position.set(8.6, 0, -9.6); m2.rotation.y = 0.2;
+    const m3 = buildMoneyStack('#e9a6bb', 7); m3.position.set(10.6, 0, -9.8); m3.rotation.y = 0.7;
+    decor.add(m1, m2, m3);
+    // coffee cup
+    const cup = buildCup(); cup.position.set(-10.6, 0, -8.8); decor.add(cup);
+    // spare tokens standing on the table
+    const sparePos = [[10.4, 8.2], [8.8, 9.6], [11.0, 9.9]];
+    [1, 3, 5].forEach((ci, k) => {
+      const tk = buildToken(PLAYER_COLORS[ci % PLAYER_COLORS.length].solid);
+      tk.position.set(sparePos[k][0], 0, sparePos[k][1]);
+      tk.rotation.y = Math.random() * Math.PI;
+      decor.add(tk);
+    });
+    scene.add(decor);
+  }
+
   // ---------- camera ----------
   function overviewFor(flat) {
     // guard: container may be 0x0 while the game screen is hidden
@@ -292,10 +423,11 @@ const B3D = (() => {
     if (!isFinite(aspect) || aspect <= 0.05) aspect = 1.7;
     const vf = THREE.MathUtils.degToRad(camera.fov) / 2;
     const hf = Math.atan(Math.tan(vf) * aspect);
-    const dist = 7.6 / Math.tan(Math.min(vf, hf));
-    if (flat) return { pos: new THREE.Vector3(0, dist * 1.08, 0.01), look: new THREE.Vector3(0, 0, 0) };
-    const dir = new THREE.Vector3(0, 0.92, 0.78).normalize();
-    return { pos: dir.multiplyScalar(dist * 1.02), look: new THREE.Vector3(0, 0, -0.55) };
+    // smaller half-extent => board fills more of the screen, names readable
+    const dist = 6.7 / Math.tan(Math.min(vf, hf));
+    if (flat) return { pos: new THREE.Vector3(0, dist * 1.05, 0.01), look: new THREE.Vector3(0, 0, 0) };
+    const dir = new THREE.Vector3(0, 0.94, 0.72).normalize();
+    return { pos: dir.multiplyScalar(dist), look: new THREE.Vector3(0, 0, -0.4) };
   }
   function goOverview() {
     cam.mode = 'overview';
@@ -308,6 +440,7 @@ const B3D = (() => {
     return new Promise(res => anims.push({ t0: performance.now(), dur, fn, res }));
   }
   const easeOut = k => 1 - Math.pow(1 - k, 3);
+  const easeInOut = k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
 
   // ---------- render loop ----------
   function loop() {
@@ -363,18 +496,36 @@ const B3D = (() => {
       rim.position.set(8, 6, -9);
       scene.add(rim);
 
-      // table
-      const woodTex = new THREE.TextureLoader().load('assets/table_wood.png');
-      woodTex.wrapS = woodTex.wrapT = THREE.RepeatWrapping;
-      woodTex.repeat.set(2.2, 2.2);
-      woodTex.encoding = THREE.sRGBEncoding;
+      // table: procedural walnut planks (grain runs along one axis, no tiling seam)
+      const woodTex = makeWoodTexture();
+      woodTex.repeat.set(3, 3);
       const table = new THREE.Mesh(
-        new THREE.PlaneGeometry(70, 70),
-        new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.42, metalness: 0.08 })
+        new THREE.PlaneGeometry(80, 80),
+        new THREE.MeshStandardMaterial({ map: woodTex, roughness: 0.62, metalness: 0.05 })
       );
       table.rotation.x = -Math.PI / 2;
+      table.position.y = -0.03;
       table.receiveShadow = true;
       scene.add(table);
+
+      // play-mat: dark green felt with a subtle raised leather border ring
+      const mat = new THREE.Mesh(
+        new THREE.CircleGeometry(SIZE * 0.9, 72),
+        new THREE.MeshStandardMaterial({ color: '#0f3327', roughness: 0.98, metalness: 0 })
+      );
+      mat.rotation.x = -Math.PI / 2;
+      mat.position.y = -0.012;
+      mat.receiveShadow = true;
+      scene.add(mat);
+      const ring = new THREE.Mesh(
+        new THREE.RingGeometry(SIZE * 0.87, SIZE * 0.9, 72),
+        new THREE.MeshStandardMaterial({ color: '#7a5a2e', roughness: 0.5, metalness: 0.2 })
+      );
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.y = -0.008;
+      scene.add(ring);
+
+      buildTableDecor();
 
       // board box with painted top
       texCanvas = document.createElement('canvas');
@@ -497,13 +648,16 @@ const B3D = (() => {
           const t = (from + dir * s + 40) % 40;
           const a = tok.group.position.clone(), b = tileWorld(t);
           if (onHop) onHop('hop');
-          await tween(210, k => {
-            tok.group.position.lerpVectors(a, b, k);
-            tok.group.position.y = TOP + Math.sin(k * Math.PI) * 0.34;
+          // slower, eased hop so the eye can follow each step
+          await tween(360, k => {
+            const e = easeInOut(k);
+            tok.group.position.lerpVectors(a, b, e);
+            tok.group.position.y = TOP + Math.sin(k * Math.PI) * 0.4;
           });
+          await new Promise(r => setTimeout(r, 70)); // tiny settle between steps
         }
       }
-      await new Promise(r => setTimeout(r, 480));
+      await new Promise(r => setTimeout(r, 620));
       goOverview();
     },
 

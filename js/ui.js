@@ -80,8 +80,17 @@ function renderFx(s) {
     setDice(s.dice);
     return;
   }
-  // money change chime
-  if (fxq.money && s.players.some((p, i) => fxq.money[i] !== undefined && p.money !== fxq.money[i])) snd.cash();
+  // money change chime + floating delta over the plaque
+  if (fxq.money) {
+    let changed = false;
+    s.players.forEach((p, i) => {
+      if (fxq.money[i] !== undefined && p.money !== fxq.money[i]) {
+        changed = true;
+        flashMoney(i, p.money - fxq.money[i]);
+      }
+    });
+    if (changed) snd.cash();
+  }
   fxq.money = s.players.map(p => p.money);
 
   // Consume new animation events exactly once, strictly in order.
@@ -221,11 +230,14 @@ function renderPlaques() {
   const s = NET.state;
   $('#plaques').innerHTML = s.players.map((p, i) => {
     const col = PLAYER_COLORS[p.color];
-    return `<div class="plaque ${i === s.turn ? 'active' : ''} ${p.bankrupt ? 'dead' : ''}"
+    const owned = Object.keys(s.props).map(Number).filter(k => s.props[k].owner === i).length;
+    return `<div id="plaque-${i}" class="plaque ${i === s.turn ? 'active' : ''} ${p.bankrupt ? 'dead' : ''}"
+      role="button" tabindex="0" title="Показать участки" onclick="showPlayerHoldings(${i})"
       style="background:linear-gradient(90deg,${col.grad[0]},${col.grad[1]})">
       <div class="plaque-ava"><img src="assets/ava_${p.color}.png" alt=""></div>
       <div class="plaque-info"><div class="plaque-name">${esc(p.name)}${p.peerId === NET.myPeerId ? ' (ты)' : ''}</div>
       <div class="plaque-money">${CUR}${p.money}${p.inJail ? ' 🚔' : ''}${p.jailCards ? ' 🎫'.repeat(p.jailCards) : ''}</div></div>
+      <div class="plaque-badge">${owned}</div>
     </div>`;
   }).join('');
 }
@@ -257,16 +269,21 @@ function renderCenter() {
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];
-  $('#act-end').disabled = !(myTurn && s.rolled && s.pendingBuy === null && meP && meP.money >= 0 && fxBusy === 0);
+  const canEnd = myTurn && s.rolled && s.pendingBuy === null && meP && meP.money >= 0 && fxBusy === 0;
+  $('#act-end').disabled = !canEnd;
+  // prominent central end-turn button so it's not forgotten
+  $('#btn-end-center').style.display = canEnd ? 'inline-flex' : 'none';
   ['#act-trade', '#act-build', '#act-sell', '#act-mortgage', '#act-redeem'].forEach(id => {
     $(id).disabled = me < 0 || s.players[me]?.bankrupt || s.winner !== null;
   });
 }
 
 function renderLog() {
-  const s = NET.state;
-  $('#log').innerHTML = s.log.slice(-5).map(l => `<div>${esc(l)}</div>`).join('');
-  $('#log').scrollTop = 1e6;
+  const s = NET.state, box = $('#log');
+  // keep the user's scroll position if they scrolled up to browse history
+  const atBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 40;
+  box.innerHTML = s.log.slice(-120).map(l => `<div>${esc(l)}</div>`).join('');
+  if (atBottom) box.scrollTop = 1e6;
 }
 
 function setLogCollapsed(collapsed) {
@@ -388,6 +405,45 @@ function deedHTML(i) {
   const barColor = t.type === 'prop' ? GROUP_COLORS[t.group] : '#444';
   return `<div class="deed-head" style="background:${barColor}">${esc(t.name)}</div>
     <table class="deed-table">${rows}<tr><td>Залог</td><td>${CUR}${Math.floor(t.price / 2)}</td></tr></table>`;
+}
+
+function showPlayerHoldings(pi) {
+  const s = NET.state;
+  if (!s || !s.players[pi]) return;
+  const p = s.players[pi];
+  const owned = Object.keys(s.props).map(Number).filter(i => s.props[i].owner === pi);
+  const worth = owned.reduce((a, i) => a + TILES[i].price, 0);
+  const rows = owned.length ? owned.map(i => {
+    const t = TILES[i], ps = s.props[i];
+    const bar = t.type === 'prop' ? GROUP_COLORS[t.group] : '#666';
+    const extra = ps.mortgaged ? ' <span class="hold-mort">залог</span>'
+      : ps.houses ? ' ' + (ps.houses === 5 ? '🏨' : '🏡'.repeat(ps.houses)) : '';
+    return `<div class="mng-row"><span class="mng-dot" style="background:${bar}"></span>
+      <span class="mng-name">${esc(t.name)}${extra}</span>
+      <span class="hold-val">${CUR}${t.price}</span></div>`;
+  }).join('') : '<div class="wait-note">Пока нет участков</div>';
+  const col = PLAYER_COLORS[p.color];
+  openModal(`<div class="hold-head" style="background:linear-gradient(90deg,${col.grad[0]},${col.grad[1]})">
+      <img src="assets/ava_${p.color}.png" alt=""><span>${esc(p.name)}</span></div>
+    <div class="hold-cash">Баланс <b>${CUR}${p.money}</b> · Участков <b>${owned.length}</b> · Активы <b>${CUR}${worth}</b></div>
+    <div class="mng-list">${rows}</div>
+    <button class="btn" onclick="closeModal()">Закрыть</button>`, true);
+}
+
+// floating "-₩220 / +₩200" over a player's plaque when their balance changes
+function flashMoney(pi, delta) {
+  const plaque = document.getElementById('plaque-' + pi);
+  const layer = $('#money-fx');
+  if (!plaque || !layer) return;
+  const r = plaque.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'money-float ' + (delta < 0 ? 'neg' : 'pos');
+  el.textContent = (delta < 0 ? '−' : '+') + CUR + Math.abs(delta);
+  el.style.left = (r.left + r.width / 2) + 'px';
+  el.style.top = (r.bottom - 4) + 'px';
+  layer.appendChild(el);
+  plaque.classList.remove('money-pulse'); void plaque.offsetWidth; plaque.classList.add('money-pulse');
+  setTimeout(() => el.remove(), 1700);
 }
 
 function showTileInfo(i) {
@@ -552,6 +608,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#btn-start').addEventListener('click', () => hostStartGame());
   $('#btn-roll').addEventListener('click', () => sendAction({ type: 'roll' }));
+  $('#btn-end-center').addEventListener('click', () => sendAction({ type: 'endTurn' }));
+  $('#btn-exit').addEventListener('click', () => {
+    if (confirm('Выйти из игры? Ты покинешь текущую комнату.')) leaveRoom();
+  });
   $('#btn-payjail').addEventListener('click', () => sendAction({ type: 'payJail' }));
   $('#btn-jailcard').addEventListener('click', () => sendAction({ type: 'useJailCard' }));
   $('#act-end').addEventListener('click', () => sendAction({ type: 'endTurn' }));
