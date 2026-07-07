@@ -37,12 +37,34 @@ const B3D = (() => {
     if (i <= 30) return { r: 1, c: i - 19 };
     return { r: i - 29, c: 11 };
   }
-  function sideOf(i) { return i <= 10 ? 'bottom' : i <= 20 ? 'left' : i <= 30 ? 'top' : 'right'; }
+  function sideOf(i) {
+    if (i >= INNER_BASE) return innerSideOf(i - INNER_BASE);
+    return i <= 10 ? 'bottom' : i <= 20 ? 'left' : i <= 30 ? 'top' : 'right';
+  }
   // start coordinate of grid line n (1..12) along one axis
   function lineAt(n) { return -HALF + (n <= 1 ? 0 : CORNER + (n - 2) * CELL); }
   function spanOf(n) { return (n === 1 || n === 11) ? CORNER : CELL; }
+
+  // ---- inner ring ("metro" circle): a 7x7 grid, 24 perimeter tiles ----
+  // Sits inside the outer ring (whose inner edge is at ±4.5), spanning ±IN_HALF,
+  // leaving a small bare-field gap between the two rings. Center hollow keeps
+  // the card decks + dice tray. j = 0..23 counterclockwise, metros at 0/6/12/18.
+  const IN_N = 7, IN_HALF = 3.9, IN_CELL = (IN_HALF * 2) / IN_N;
+  function innerGrid(j) {
+    if (j <= 6) return { r: 6, c: 6 - j };   // bottom  (0..6)
+    if (j <= 12) return { r: 12 - j, c: 0 };  // left    (6..12)
+    if (j <= 18) return { r: 0, c: j - 12 };  // top     (12..18)
+    return { r: j - 18, c: 6 };               // right   (18..24)
+  }
+  function innerSideOf(j) { const { r, c } = innerGrid(j); return r === 6 ? 'bottom' : r === 0 ? 'top' : c === 0 ? 'left' : 'right'; }
+  function innerRect(j) {
+    const { r, c } = innerGrid(j);
+    return { x: -IN_HALF + (c + 0.5) * IN_CELL, z: -IN_HALF + (r + 0.5) * IN_CELL, w: IN_CELL, d: IN_CELL, side: innerSideOf(j) };
+  }
+
   // world rect of tile i: {x,z} center, {w,d} size
   function tileRect(i) {
+    if (i >= INNER_BASE) return innerRect(i - INNER_BASE);
     const { r, c } = gridPos(i);
     const x0 = lineAt(c), z0 = lineAt(r);
     const w = spanOf(c), d = spanOf(r);
@@ -80,7 +102,7 @@ const B3D = (() => {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, TEX, TEX);
 
-    TILES.forEach((t, i) => {
+    BOARD.forEach((t, i) => {
       const R = tileRect(i);
       const px = (R.x - R.w / 2 + HALF) * K, py = (R.z - R.d / 2 + HALF) * K;
       const pw = R.w * K, ph = R.d * K;
@@ -125,7 +147,20 @@ const B3D = (() => {
       const lw = (R.side === 'left' || R.side === 'right') ? ph : pw;
       const lh = (R.side === 'left' || R.side === 'right') ? pw : ph;
 
-      const isCorner = i % 10 === 0;
+      // inner-ring metro tile: draw a distinct subway badge and stop
+      if (t.type === 'metro') {
+        ctx.fillStyle = '#1c1c22';
+        ctx.font = `800 ${Math.round(K * 0.4)}px Rubik, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Ⓜ', 0, -lh * 0.06);
+        ctx.fillStyle = '#3a382f';
+        ctx.font = `800 ${Math.round(K * 0.13)}px Rubik, sans-serif`;
+        ctx.fillText('METRO', 0, lh * 0.30);
+        ctx.restore();
+        return;
+      }
+
+      const isCorner = i < INNER_BASE && i % 10 === 0;
       if (isCorner) {
         ctx.rotate(i === 0 ? -Math.PI / 4 : i === 10 ? 0 : i === 20 ? Math.PI / 4 : Math.PI / 4);
         ctx.fillStyle = i === 0 ? '#b02020' : '#1d1c18';
@@ -159,18 +194,26 @@ const B3D = (() => {
         ctx.fillText(icons[t.type], 0, -lh * 0.10);
       }
 
-      // name
+      // name — auto-fit the font so even long English names stay legible
       ctx.fillStyle = '#161510';
-      ctx.font = `800 ${Math.round(K * 0.15)}px Rubik, sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      const lines = wrap(ctx, shortName(t), lw - 14);
-      const nameY = t.type === 'prop' ? -lh * 0.03 : lh * 0.13;
-      lines.forEach((ln, li) => ctx.fillText(ln, 0, nameY + li * K * 0.165));
+      let nameFont = Math.round(K * 0.20);
+      let lines;
+      // shrink font a little (down to a floor) until it fits in <=2 lines
+      for (;;) {
+        ctx.font = `800 ${nameFont}px Rubik, sans-serif`;
+        lines = wrap(ctx, shortName(t), lw - 12);
+        if (lines.length <= 2 || nameFont <= Math.round(K * 0.14)) break;
+        nameFont -= 2;
+      }
+      const lineH = nameFont * 1.06;
+      const nameY = t.type === 'prop' ? -lh * 0.02 : lh * 0.12;
+      lines.forEach((ln, li) => ctx.fillText(ln, 0, nameY + (li - (lines.length - 1) / 2) * lineH));
       // price
       if (t.price) {
         ctx.fillStyle = '#2c2a20';
-        ctx.font = `700 ${Math.round(K * 0.135)}px Rubik, sans-serif`;
-        ctx.fillText(CUR + t.price, 0, lh / 2 - lh * 0.15);
+        ctx.font = `800 ${Math.round(K * 0.155)}px Rubik, sans-serif`;
+        ctx.fillText(CUR + t.price, 0, lh / 2 - lh * 0.14);
       }
       ctx.restore();
     });
@@ -179,7 +222,7 @@ const B3D = (() => {
     ctx.save();
     ctx.translate(TEX / 2, TEX / 2);
     ctx.rotate(-Math.PI / 4.3);
-    const pw2 = TEX * 0.42, ph2 = TEX * 0.085;
+    const pw2 = TEX * 0.26, ph2 = TEX * 0.058;
     ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 26; ctx.shadowOffsetY = 12;
     const grad = ctx.createLinearGradient(0, -ph2 / 2, 0, ph2 / 2);
     grad.addColorStop(0, '#f04338'); grad.addColorStop(0.55, '#d21f1f'); grad.addColorStop(1, '#a91414');
@@ -216,12 +259,14 @@ const B3D = (() => {
   const DIE_UP = { 1: [0, 0, 0], 6: [Math.PI, 0, 0], 2: [0, 0, Math.PI / 2], 5: [0, 0, -Math.PI / 2], 3: [-Math.PI / 2, 0, 0], 4: [Math.PI / 2, 0, 0] };
   // resting spots for 2 or 3 dice, centered on the board
   function diceTargets(n) {
-    if (n >= 3) return [new THREE.Vector3(-1.05, 0, 0.5), new THREE.Vector3(0, 0, 0.62), new THREE.Vector3(1.05, 0, 0.74)];
-    return [new THREE.Vector3(-0.78, 0, 0.5), new THREE.Vector3(0.78, 0, 0.7)];
+    if (n >= 3) return [new THREE.Vector3(-1.35, 0, 0.4), new THREE.Vector3(0, 0, 0.55), new THREE.Vector3(1.35, 0, 0.7)];
+    return [new THREE.Vector3(-1.0, 0, 0.45), new THREE.Vector3(1.0, 0, 0.65)];
   }
+  const DIE_SIZE = 0.95;                 // bigger dice — far easier to read
+  const DIE_REST_Y = TOP + DIE_SIZE / 2; // resting height so they sit on the board
   function buildDie(speed) {
     const mats = [2, 5, 1, 6, 3, 4].map(v => new THREE.MeshStandardMaterial({ map: pipTexture(v, speed), roughness: 0.35, metalness: speed ? 0.2 : 0.05 }));
-    const m = new THREE.Mesh(new THREE.BoxGeometry(0.58, 0.58, 0.58), mats);
+    const m = new THREE.Mesh(new THREE.BoxGeometry(DIE_SIZE, DIE_SIZE, DIE_SIZE), mats);
     m.castShadow = true;
     m.visible = false;
     return m;
@@ -285,7 +330,7 @@ const B3D = (() => {
   }
   function buildDeck(label, c1, c2) {
     const g = new THREE.Group();
-    const w = 2.1, d = 1.32, n = 5;
+    const w = 1.35, d = 0.86, n = 5;
     for (let i = 0; i < n; i++) {
       const top = i === n - 1;
       const mat = top
@@ -460,16 +505,18 @@ const B3D = (() => {
       a.fn(k);
       if (k >= 1) { anims.splice(i, 1); a.res(); }
     }
-    // camera follow: orbit with the token around the board
-    if (cam.mode === 'follow' && tokens[cam.followPi]) {
-      const tp = tokens[cam.followPi].group.position;
-      const dir = new THREE.Vector2(tp.x, tp.z);
-      if (dir.lengthSq() < 0.01) dir.set(0, 1); else dir.normalize();
-      cam.pos.set(tp.x + dir.x * 3.6, TOP + 4.4, tp.z + dir.y * 3.6);
-      cam.look.set(tp.x, TOP + 0.2, tp.z);
-    }
-    camera.position.lerp(cam.pos, 0.06);
-    curLook.lerp(cam.look, 0.09);
+  // camera follow: keep the fixed overview angle, only gently lean toward the
+  // active token (a subtle parallax nudge). No orbiting, no flipping, no zoom
+  // dive into the board — that was disorienting during a walk.
+  if (cam.mode === 'follow' && tokens[cam.followPi]) {
+    const tp = tokens[cam.followPi].group.position;
+    const o = overviewFor(cam.flat);
+    cam.pos.set(o.pos.x + tp.x * 0.32, o.pos.y, o.pos.z + tp.z * 0.32);
+    cam.look.set(tp.x * 0.55, TOP + 0.2, tp.z * 0.55);
+  }
+  // slower lerp = smoother, less jerky glide
+  camera.position.lerp(cam.pos, 0.045);
+  curLook.lerp(cam.look, 0.06);
     camera.lookAt(curLook);
     renderer.render(scene, camera);
   }
@@ -553,11 +600,11 @@ const B3D = (() => {
 
       // decks aligned with the diagonal plaque
       decks.chance = buildDeck('ШАНС', '#f09545', '#c0511d');
-      decks.chance.position.set(-1.85, TOP, -1.85);
+      decks.chance.position.set(-1.15, TOP, -1.15);
       decks.chance.rotation.y = -Math.PI / 4.3;
       scene.add(decks.chance);
       decks.chest = buildDeck('КАЗНА', '#4a90dd', '#1d4e96');
-      decks.chest.position.set(1.85, TOP, 1.85);
+      decks.chest.position.set(1.15, TOP, 1.15);
       decks.chest.rotation.y = -Math.PI / 4.3;
       scene.add(decks.chest);
 
@@ -578,7 +625,7 @@ const B3D = (() => {
         if (!hit) return;
         const { x, z } = hit.point;
         if (Math.abs(x) > HALF || Math.abs(z) > HALF) return;
-        for (let i = 0; i < 40; i++) {
+        for (let i = 0; i < BOARD.length; i++) {
           const t = tileRect(i);
           if (x >= t.x - t.w / 2 && x <= t.x + t.w / 2 && z >= t.z - t.d / 2 && z <= t.z + t.d / 2) { onTileClick(i); return; }
         }
@@ -637,11 +684,20 @@ const B3D = (() => {
     async moveToken(pi, from, to, { jump = false, onHop = null } = {}) {
       const tok = tokens[pi];
       if (!tok) return;
+      // Always start the walk from the EXACT `from` tile. Guards against any
+      // race where a heartbeat broadcast snapped the token to `to` already,
+      // which used to make the hops play in-place and look like a teleport.
+      tok.group.position.copy(tileWorld(from));
       cam.mode = 'follow'; cam.followPi = pi;
-      let steps = (to - from + 40) % 40, dir = 1;
-      if (steps >= 37) { dir = -1; steps = 40 - steps; }
-      if (jump || steps === 0 || steps > 12) {
-        // one big arc flight
+      // ring-aware stepping: outer ring = 40 tiles (base 0), inner = 24 (base 40)
+      const base = from >= INNER_BASE ? INNER_BASE : 0;
+      const len = from >= INNER_BASE ? INNER_COUNT : 40;
+      const sameRing = (to >= INNER_BASE ? INNER_BASE : 0) === base;
+      let steps = sameRing ? (to - from + len) % len : 0, dir = 1;
+      if (sameRing && steps > len / 2) { dir = -1; steps = len - steps; }
+      // Only a genuine "jump" (metro warp between rings) flies through the air.
+      // Every dice roll walks tile-by-tile within its ring.
+      if (jump || !sameRing || steps === 0) {
         const a = tok.group.position.clone(), b = tileWorld(to);
         if (onHop) onHop('fly');
         await tween(700, k => {
@@ -653,7 +709,7 @@ const B3D = (() => {
         tok.group.rotation.y = 0;
       } else {
         for (let s = 1; s <= steps; s++) {
-          const t = (from + dir * s + 40) % 40;
+          const t = base + (((from - base) + dir * s) % len + len) % len;
           const a = tok.group.position.clone(), b = tileWorld(t);
           if (onHop) onHop('hop');
           // slower, eased hop so the eye can follow each step
@@ -676,8 +732,8 @@ const B3D = (() => {
       const proms = vals.map((v, i) => {
         const d = dice[i];
         d.visible = true;
-        const start = new THREE.Vector3((i - (vals.length - 1) / 2) * 1.9, TOP + 2.8, 2.8);
-        const end = targets[i].clone().setY(TOP + 0.29);
+        const start = new THREE.Vector3((i - (vals.length - 1) / 2) * 2.1, TOP + 3.0, 2.8);
+        const end = targets[i].clone().setY(DIE_REST_Y);
         const [rx, ry, rz] = DIE_UP[v];
         const spinX = rx + Math.PI * 2 * (2 + i), spinZ = rz + Math.PI * 2 * 2;
         const spinY = ry + (Math.random() - 0.5) * 0.6;
@@ -700,7 +756,7 @@ const B3D = (() => {
       dice.forEach((d, i) => {
         if (i >= vals.length) { d.visible = false; return; }
         d.visible = true;
-        d.position.copy(targets[i].clone().setY(TOP + 0.29));
+        d.position.copy(targets[i].clone().setY(DIE_REST_Y));
         d.rotation.set(...DIE_UP[vals[i]]);
       });
     },
@@ -716,7 +772,7 @@ const B3D = (() => {
       // rebuild houses
       while (housesGroup.children.length) housesGroup.remove(housesGroup.children[0]);
       Object.keys(state.props).map(Number).forEach(i => {
-        const ps = state.props[i], t = TILES[i];
+        const ps = state.props[i], t = BOARD[i];
         if (!ps || t.type !== 'prop' || !ps.houses) return;
         const R = tileRect(i);
         // inner edge direction (toward board center)

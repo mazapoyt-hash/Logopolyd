@@ -1,7 +1,9 @@
 // ===== Board & card data (classic Monopoly, US edition) =====
 const GROUP_COLORS = {
   brown: '#8b5a3c', lightblue: '#9fd5e8', pink: '#d63f8c', orange: '#f18a21',
-  red: '#e02929', yellow: '#f2d21f', green: '#1fa84f', darkblue: '#2456c4'
+  red: '#e02929', yellow: '#f2d21f', green: '#1fa84f', darkblue: '#2456c4',
+  // inner-ring (metro) color groups
+  'i-cyan': '#17b8c4', 'i-lime': '#7cb342', 'i-amber': '#ffa726', 'i-rose': '#ec407a',
 };
 
 const PLAYER_COLORS = [
@@ -101,7 +103,7 @@ const DEFAULT_SETTINGS = {
   turnTimer: 0,         // seconds per turn, 0 = off (auto-ends stalled turns)
   auction: false,       // declined/unaffordable tiles go to auction
   freeParkingPot: false,// taxes & fines pile in the center, claimed on Free Parking
-  innerCircle: false,   // metro shortcut: jump across the board from metro tiles
+  innerCircle: true,    // metro inner ring: outer stations lead into a 24-tile inner circle
   speedDie: false,      // extra speed die for faster games
   theme: 'classic',     // board skin
 };
@@ -114,6 +116,50 @@ const BOARD_THEMES = {
   mono:    { name: 'Графит',    field: '#c9ccce', vignette: 'rgba(20,20,25,0.3)',  paper: '#f2f3f4', ink: '#1c1e20' },
 };
 
-// Metro tiles for the inner-circle shortcut (mid-side, one per edge).
-// Landing here lets you hop to the metro tile on the opposite side.
-const METRO_TILES = { 5: 25, 15: 35, 25: 5, 35: 15 };
+// ===== Inner ring ("metro" circle) =====
+// The four outer stations (rail tiles) are the entrances. Landing on ANY outer
+// station teleports you into this inner ring; you leave again by landing on an
+// inner metro tile, which returns you to the station you came from.
+//
+// 24 tiles total, absolute board indices 40..63:
+//   - metro tiles at relative 0, 6, 12, 18 (the ring "corners" = exits)
+//   - four color groups of 5 buyable properties, one per side.
+const OUTER_STATIONS = [5, 15, 25, 35];   // outer rail tiles that lead inside
+const INNER_BASE = 40;                     // absolute index of inner tile 0
+const INNER_COUNT = 24;
+
+const INNER_TILES = (() => {
+  const groups = [
+    { g: 'i-cyan',  price: 120, house: 60,  rent: [8, 40, 100, 300, 450, 600],
+      names: ['Northgate', 'Junction', 'Eastport', 'Midtown', 'Riverside'] },
+    { g: 'i-lime',  price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950],
+      names: ['Harborview', 'Old Town', 'Green Park', 'Sunset Blvd', 'Kings Cross'] },
+    { g: 'i-amber', price: 240, house: 150, rent: [20, 100, 300, 750, 925, 1100],
+      names: ['Union Square', 'Grand Central', 'Times Square', 'Broadway', 'Liberty'] },
+    { g: 'i-rose',  price: 320, house: 200, rent: [28, 150, 450, 1000, 1200, 1400],
+      names: ['Downtown', 'Uptown', 'Financial', 'Highline', 'Central Park'] },
+  ];
+  const tiles = [];
+  for (let k = 0; k < INNER_COUNT; k++) {
+    const side = Math.floor(k / 6);   // 0..3
+    const j = k % 6;                  // 0 = corner (metro), 1..5 = properties
+    if (j === 0) {
+      tiles.push({ name: 'Metro', type: 'metro' });
+    } else {
+      const grp = groups[side];
+      tiles.push({
+        name: grp.names[j - 1], type: 'prop', group: grp.g,
+        price: grp.price, house: grp.house, rent: grp.rent.slice(),
+      });
+    }
+  }
+  return tiles;
+})();
+
+// Combined board: outer (0..39) + inner (40..63). Index tiles via BOARD[idx].
+const BOARD = TILES.concat(INNER_TILES);
+
+// Ring helpers on the combined index space.
+function ringBase(pos) { return pos >= INNER_BASE ? INNER_BASE : 0; }
+function ringLen(pos) { return pos >= INNER_BASE ? INNER_COUNT : 40; }
+function isInner(pos) { return pos >= INNER_BASE; }

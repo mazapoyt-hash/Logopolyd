@@ -3,7 +3,7 @@
 function newGameState(lobbyPlayers, settings) {
   const cfg = Object.assign({}, DEFAULT_SETTINGS, settings || {});
   const props = {};
-  TILES.forEach((t, i) => {
+  BOARD.forEach((t, i) => {
     if (t.type === 'prop' || t.type === 'rail' || t.type === 'util') {
       props[i] = { owner: -1, houses: 0, mortgaged: false };
     }
@@ -15,7 +15,8 @@ function newGameState(lobbyPlayers, settings) {
     auction: null,          // active auction state (if enabled)
     players: lobbyPlayers.map((p, i) => ({
       peerId: p.peerId, name: p.name, photo: p.photo || '', color: i % PLAYER_COLORS.length,
-      money: cfg.startMoney, pos: 0, inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
+      money: cfg.startMoney, pos: 0, ring: 0, metroReturn: 5,
+      inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
     })),
     props,
     turn: 0,
@@ -24,7 +25,6 @@ function newGameState(lobbyPlayers, settings) {
     rolled: false,
     doubles: 0,
     pendingBuy: null,       // tile index awaiting buy/decline
-    pendingMetro: null,     // {from, to} inner-circle jump offer
     pendingCard: null,      // {deck, text} shown to all
     trade: null,            // {from, to, giveMoney, getMoney, giveProps, getProps}
     chanceIdx: 0, chestIdx: 0,
@@ -71,7 +71,7 @@ function pName(state, i) { return state.players[i].name; }
 
 function countGroup(state, group, owner) {
   let total = 0, owned = 0;
-  TILES.forEach((t, i) => {
+  BOARD.forEach((t, i) => {
     if (t.type === 'prop' && t.group === group) {
       total++;
       if (state.props[i].owner === owner) owned++;
@@ -82,12 +82,12 @@ function countGroup(state, group, owner) {
 
 function countType(state, type, owner) {
   let n = 0;
-  TILES.forEach((t, i) => { if (t.type === type && state.props[i].owner === owner) n++; });
+  BOARD.forEach((t, i) => { if (t.type === type && state.props[i].owner === owner) n++; });
   return n;
 }
 
 function calcRent(state, tileIdx, diceSum) {
-  const t = TILES[tileIdx];
+  const t = BOARD[tileIdx];
   const ps = state.props[tileIdx];
   if (ps.mortgaged) return 0;
   if (t.type === 'rail') {
@@ -117,9 +117,12 @@ function transfer(state, fromIdx, toIdx, amount) {
 function movePlayer(state, pi, steps) {
   const p = state.players[pi];
   const old = p.pos;
-  p.pos = (p.pos + steps + 40) % 40;
+  const base = ringBase(old), len = ringLen(old);
+  const rel = (((old - base) + steps) % len + len) % len;
+  p.pos = base + rel;
   pushEv(state, { kind: 'move', pi, from: old, to: p.pos, jump: false });
-  if (steps > 0 && p.pos < old) {
+  // GO bonus only when looping the OUTER ring forward past start
+  if (base === 0 && steps > 0 && p.pos < old) {
     p.money += 200;
     if (state.stats) state.stats[pi].circles++;
     glog(state, `${p.name} проходит GO и получает ${CUR}200`);
@@ -151,7 +154,7 @@ function startAuction(state, tileIdx) {
   const eligible = state.players.map((p, i) => i).filter(i => !state.players[i].bankrupt);
   if (eligible.length < 1) return;
   state.auction = { tile: tileIdx, high: 0, bidder: -1, passed: [] };
-  glog(state, `🔨 ${TILES[tileIdx].name} выставлен на аукцион (стартовая цена ${CUR}0)`);
+  glog(state, `🔨 ${BOARD[tileIdx].name} выставлен на аукцион (стартовая цена ${CUR}0)`);
   resolveAuction(state);
 }
 
@@ -168,9 +171,9 @@ function resolveAuction(state) {
   if (active.length === 1 && active[0] !== au.bidder) return;
   // everyone passed and nobody bid -> tile stays with the bank
   if (au.bidder === -1) {
-    glog(state, `Аукцион завершён без ставок — ${TILES[au.tile].name} остаётся у банка`);
+    glog(state, `Аукцион завершён без ставок — ${BOARD[au.tile].name} остаётся у банка`);
     state.auction = null;
-    maybeOfferMetro(state, state.turn);
+      maybeEnterMetro(state, state.turn);
     return;
   }
   // winner is the top bidder (or the last one left who bid)
@@ -179,25 +182,48 @@ function resolveAuction(state) {
   state.props[au.tile].owner = au.bidder;
   if (state.stats) state.stats[au.bidder].bought++;
   addToPot(state, 0);
-  glog(state, `🔨 ${w.name} выигрывает ${TILES[au.tile].name} за ${CUR}${au.high}`);
+  glog(state, `🔨 ${w.name} выигрывает ${BOARD[au.tile].name} за ${CUR}${au.high}`);
   state.auction = null;
-  maybeOfferMetro(state, state.turn);
+  maybeEnterMetro(state, state.turn);
 }
 
-// Inner-circle metro: offer a one-time jump to the opposite station, but only
-// once the tile is fully settled (no pending buy/auction) and not already used.
-function maybeOfferMetro(state, pi) {
+// Inner-ring metro: once an outer station tile is fully settled (bought,
+// declined, or rent paid — no pending buy/auction), the player is pulled down
+// into the inner ring automatically. They resume rolling from inside next turn.
+function maybeEnterMetro(state, pi) {
   const p = state.players[pi];
-  if (state.settings && state.settings.innerCircle && !state.metroUsed
-      && METRO_TILES[p.pos] !== undefined
-      && state.pendingBuy === null && !state.auction && !state.pendingMetro) {
-    state.pendingMetro = { from: p.pos, to: METRO_TILES[p.pos] };
-  }
+  if (!(state.settings && state.settings.innerCircle)) return;
+  if (state.pendingBuy !== null || state.auction) return;
+  if (p.ring !== 0) return;
+  if (!OUTER_STATIONS.includes(p.pos)) return;
+  const from = p.pos;
+  p.metroReturn = from;      // remember which station to resurface at
+  p.ring = 1;
+  p.pos = INNER_BASE;        // inner entrance (a metro tile, but placement only)
+  pushEv(state, { kind: 'move', pi, from, to: INNER_BASE, jump: true });
+  glog(state, `🚇 ${p.name} спускается в метро`);
+}
+
+// Leaving the inner ring: landing on any inner metro tile resurfaces the player
+// at the outer station they entered from.
+function exitMetro(state, pi) {
+  const p = state.players[pi];
+  const from = p.pos;
+  const back = (typeof p.metroReturn === 'number') ? p.metroReturn : 5;
+  p.ring = 0;
+  p.pos = back;
+  pushEv(state, { kind: 'move', pi, from, to: back, jump: true });
+  glog(state, `🚇 ${p.name} выходит из метро на ${BOARD[back].name}`);
 }
 
 function landOn(state, pi, diceSum, rentMult = 1, skipMetro = false) {
   const p = state.players[pi];
-  const t = TILES[p.pos];
+  // inner-ring exit: landing on an inner metro tile resurfaces the player
+  if (p.ring === 1 && BOARD[p.pos].type === 'metro') {
+    exitMetro(state, pi);
+    return;
+  }
+  const t = BOARD[p.pos];
   const idx = p.pos;
   switch (t.type) {
     case 'prop': case 'rail': case 'util': {
@@ -214,7 +240,7 @@ function landOn(state, pi, diceSum, rentMult = 1, skipMetro = false) {
         transfer(state, pi, ps.owner, rent);
         glog(state, `${p.name} платит ${CUR}${rent} аренды → ${pName(state, ps.owner)} (${t.name})`);
       }
-      if (!skipMetro) maybeOfferMetro(state, pi); // inner-circle shortcut
+      if (!skipMetro) maybeEnterMetro(state, pi); // outer station -> inner ring
       break;
     }
     case 'tax':
@@ -315,7 +341,7 @@ function applyAction(state, pi, a) {
 
   switch (a.type) {
     case 'roll': {
-      if (!isTurn || state.rolled || state.pendingBuy !== null || state.pendingMetro || state.auction) return;
+      if (!isTurn || state.rolled || state.pendingBuy !== null || state.auction) return;
       const d1 = 1 + Math.floor(Math.random() * 6), d2 = 1 + Math.floor(Math.random() * 6);
       const useSpeed = !!(state.settings && state.settings.speedDie) && !p.inJail;
       const d3 = useSpeed ? 1 + Math.floor(Math.random() * 6) : 0;
@@ -368,23 +394,23 @@ function applyAction(state, pi, a) {
     case 'buy': {
       if (state.pendingBuy === null || !isTurn) return;
       const idx = state.pendingBuy;
-      const t = TILES[idx];
+      const t = BOARD[idx];
       if (p.money < t.price) return;
       p.money -= t.price;
       state.props[idx].owner = pi;
       state.pendingBuy = null;
       if (state.stats) state.stats[pi].bought++;
       glog(state, `${p.name} покупает ${t.name} за ${CUR}${t.price} 🏠`);
-      maybeOfferMetro(state, pi);
+      maybeEnterMetro(state, pi);
       break;
     }
     case 'declineBuy': {
       if (state.pendingBuy === null || !isTurn) return;
       const idx = state.pendingBuy;
-      glog(state, `${p.name} отказывается от покупки ${TILES[idx].name}`);
+      glog(state, `${p.name} отказывается от покупки ${BOARD[idx].name}`);
       state.pendingBuy = null;
       if (state.settings && state.settings.auction) startAuction(state, idx);
-      else maybeOfferMetro(state, pi);
+      else maybeEnterMetro(state, pi);
       break;
     }
     case 'bid': {
@@ -394,7 +420,7 @@ function applyAction(state, pi, a) {
       if (amt <= au.high || amt > p.money) return;
       au.high = amt; au.bidder = pi;
       au.passed = au.passed.filter(x => x !== pi);
-      glog(state, `${p.name} ставит ${CUR}${amt} за ${TILES[au.tile].name}`);
+      glog(state, `${p.name} ставит ${CUR}${amt} за ${BOARD[au.tile].name}`);
       resolveAuction(state);
       break;
     }
@@ -404,24 +430,6 @@ function applyAction(state, pi, a) {
       if (!au.passed.includes(pi)) au.passed.push(pi);
       glog(state, `${p.name} пасует на аукционе`);
       resolveAuction(state);
-      break;
-    }
-    case 'metroJump': {
-      if (!state.pendingMetro || !isTurn) return;
-      const from = p.pos, to = state.pendingMetro.to;
-      state.pendingMetro = null;
-      state.metroUsed = true;
-      p.pos = to;
-      pushEv(state, { kind: 'move', pi, from, to, jump: true });
-      glog(state, `🚇 ${p.name} едет на метро → ${TILES[to].name}`);
-      landOn(state, pi, 0, 1, true); // resolve destination, no further metro hop
-      break;
-    }
-    case 'metroStay': {
-      if (!state.pendingMetro || !isTurn) return;
-      state.pendingMetro = null;
-      state.metroUsed = true;
-      glog(state, `${p.name} остаётся на вокзале`);
       break;
     }
     case 'payJail': {
@@ -437,12 +445,12 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'build': {
-      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      const idx = a.tile, t = BOARD[idx], ps = state.props[idx];
       if (!t || t.type !== 'prop' || ps.owner !== pi || ps.mortgaged || ps.houses >= 5) return;
       const g = countGroup(state, t.group, pi);
       if (!g.monopoly) return;
       // even-build rule + no mortgaged tiles in group
-      const groupTiles = TILES.map((tt, i) => ({ tt, i })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
+      const groupTiles = BOARD.map((tt, i) => ({ tt, i })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
       if (groupTiles.some(x => state.props[x.i].mortgaged)) return;
       const minH = Math.min(...groupTiles.map(x => state.props[x.i].houses));
       if (ps.houses > minH) return;
@@ -453,9 +461,9 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'sellHouse': {
-      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      const idx = a.tile, t = BOARD[idx], ps = state.props[idx];
       if (!t || t.type !== 'prop' || ps.owner !== pi || ps.houses < 1) return;
-      const groupTiles = TILES.map((tt, i) => ({ tt, i })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
+      const groupTiles = BOARD.map((tt, i) => ({ tt, i })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
       const maxH = Math.max(...groupTiles.map(x => state.props[x.i].houses));
       if (ps.houses < maxH) return;
       ps.houses--;
@@ -464,7 +472,7 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'mortgage': {
-      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      const idx = a.tile, t = BOARD[idx], ps = state.props[idx];
       if (!t || !ps || ps.owner !== pi || ps.mortgaged || ps.houses > 0) return;
       ps.mortgaged = true;
       p.money += Math.floor(t.price / 2);
@@ -472,7 +480,7 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'redeem': {
-      const idx = a.tile, t = TILES[idx], ps = state.props[idx];
+      const idx = a.tile, t = BOARD[idx], ps = state.props[idx];
       if (!t || !ps || ps.owner !== pi || !ps.mortgaged) return;
       const cost = Math.ceil(t.price / 2 * 1.1);
       if (p.money < cost) return;
@@ -537,7 +545,7 @@ function applyAction(state, pi, a) {
       break;
     }
     case 'endTurn': {
-      if (!isTurn || !state.rolled || state.pendingBuy !== null || state.pendingMetro || state.auction || p.money < 0) return;
+      if (!isTurn || !state.rolled || state.pendingBuy !== null || state.auction || p.money < 0) return;
       advanceTurn(state);
       break;
     }
@@ -549,8 +557,6 @@ function advanceTurn(state) {
   state.dice = null;
   state.doubles = 0;
   state.pendingBuy = null;
-  state.pendingMetro = null;
-  state.metroUsed = false;
   let next = state.turn;
   for (let k = 0; k < state.players.length; k++) {
     next = (next + 1) % state.players.length;
@@ -573,13 +579,11 @@ function autoTurn(state) {
   bumpV(state);
   if (state.auction) { applyAction(state, pi, { type: 'passBid' }); return true; }
   if (state.pendingCard) { state.pendingCard = null; }
-  if (state.pendingMetro) { applyAction(state, pi, { type: 'metroStay' }); }
   if (state.pendingBuy !== null) { applyAction(state, pi, { type: 'declineBuy' }); }
   if (!state.rolled && !p.inJail) { applyAction(state, pi, { type: 'roll' }); }
   if (p.inJail && !state.rolled) { applyAction(state, pi, { type: 'roll' }); }
   if (state.pendingBuy !== null) { applyAction(state, pi, { type: 'declineBuy' }); }
-  if (state.pendingMetro) { applyAction(state, pi, { type: 'metroStay' }); }
-  if (state.rolled && state.pendingBuy === null && !state.pendingMetro && !state.auction && p.money >= 0) {
+  if (state.rolled && state.pendingBuy === null && !state.auction && p.money >= 0) {
     advanceTurn(state);
   }
   glog(state, `⏱ Время вышло — ход ${p.name} завершён автоматически`);

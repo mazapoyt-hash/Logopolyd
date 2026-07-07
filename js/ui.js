@@ -73,6 +73,21 @@ function setDice(vals) {
   B3D.setDice(vals);
 }
 
+// Big, unmissable 2D read-out of the last roll (the 3D dice are small on-board).
+function showDiceBadge(vals) {
+  const el = $('#dice-badge');
+  if (!el || !vals || !vals.length) return;
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const pips = vals.map(v => `<span class="db-die">${v}</span>`).join('<span class="db-plus">+</span>');
+  el.innerHTML = `${pips}<span class="db-eq">=</span><span class="db-sum">${sum}</span>`;
+  el.style.display = 'flex';
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+}
+function hideDiceBadge() {
+  const el = $('#dice-badge');
+  if (el) el.style.display = 'none';
+}
+
 function renderFx(s) {
   ensureTokens(s);
   if (!fxq.disp) {
@@ -114,7 +129,13 @@ function renderFx(s) {
   if (evs.length) fxq.lastSeq = evs[evs.length - 1].seq;
   evs.forEach(ev => {
     if (ev.kind === 'dice') {
-      queueFx(async () => { snd.dice(); await B3D.rollDice(ev.d); await sleep(150); });
+      queueFx(async () => {
+        hideDiceBadge();
+        snd.dice();
+        await B3D.rollDice(ev.d);
+        showDiceBadge(ev.d);
+        await sleep(150);
+      });
     } else if (ev.kind === 'move') {
       queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump));
     } else if (ev.kind === 'card') {
@@ -134,7 +155,7 @@ function renderFx(s) {
 
   if (fxBusy === 0) {
     // idle: keep display state in sync (resize, missed snapshots)
-    if (!s.dice) setDice(null);
+    if (!s.dice) { setDice(null); hideDiceBadge(); }
     s.players.forEach((p, pi) => { if (!p.bankrupt) fxq.disp[pi] = p.pos; });
     placeAllTokens(s);
   }
@@ -278,7 +299,7 @@ function renderCenter() {
   const myTurn = me === s.turn && !s.players[me]?.bankrupt && s.winner === null;
   const p = s.players[s.turn];
 
-  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && !s.pendingMetro && !s.auction && fxBusy === 0;
+  const canRoll = myTurn && !s.rolled && s.pendingBuy === null && !s.auction && fxBusy === 0;
   $('#btn-roll').style.display = canRoll ? 'inline-block' : 'none';
 
   const showJail = myTurn && p.inJail && !s.rolled;
@@ -292,8 +313,9 @@ function renderCenter() {
   if (s.winner !== null) hint = `🏆 ${t('winner')}: ${esc(s.players[s.winner].name)}!`;
   else if (myTurn) hint = s.rolled ? t('finishOrManage') : (p.inJail ? t('jailHint') : t('yourTurn'));
   else hint = `${t('turnOf')} ${esc(p.name)}…`;
-  // turn timer countdown
-  if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0) {
+  // turn timer countdown — hidden while dice/token animations play, so it
+  // doesn't keep ticking on-screen while the piece is still moving.
+  if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0 && fxBusy === 0) {
     const left = Math.max(0, Math.ceil((s.turnDeadline - Date.now()) / 1000));
     const warn = left <= 10 ? ' timer-warn' : '';
     hint += `<div class="turn-timer${warn}">⏱ ${left}s</div>`;
@@ -305,7 +327,7 @@ function renderCenter() {
   $('#turn-hint').innerHTML = hint;
 
   const meP = s.players[me];
-  const canEnd = myTurn && s.rolled && s.pendingBuy === null && !s.pendingMetro && !s.auction && meP && meP.money >= 0 && fxBusy === 0;
+  const canEnd = myTurn && s.rolled && s.pendingBuy === null && !s.auction && meP && meP.money >= 0 && fxBusy === 0;
   $('#act-end').disabled = !canEnd;
   // prominent central end-turn button so it's not forgotten
   $('#btn-end-center').style.display = canEnd ? 'inline-flex' : 'none';
@@ -334,7 +356,7 @@ function statsHTML(s) {
   if (!s.stats) return '';
   const propVal = pi => Object.entries(s.props)
     .filter(([, ps]) => ps.owner === pi)
-    .reduce((sum, [i]) => sum + (TILES[i].price || 0), 0);
+    .reduce((sum, [i]) => sum + (BOARD[i].price || 0), 0);
   const rows = s.players.map((p, i) => {
     const st = s.stats[i] || { rentPaid: 0, rentEarned: 0, bought: 0, circles: 0 };
     const total = p.bankrupt ? 0 : p.money + propVal(i);
@@ -385,7 +407,7 @@ function renderModals() {
 
   if (s.auction) {
     const au = s.auction;
-    const t = TILES[au.tile];
+    const t = BOARD[au.tile];
     const iAmIn = me >= 0 && !s.players[me].bankrupt && !au.passed.includes(me);
     const highTxt = au.bidder >= 0 ? `${CUR}${au.high} — ${esc(s.players[au.bidder].name)}` : 'ставок нет';
     let controls = '';
@@ -408,24 +430,8 @@ function renderModals() {
     return;
   }
 
-  if (s.pendingMetro) {
-    const mto = s.pendingMetro.to;
-    if (me === s.turn) {
-      openModal(`<div class="modal-title">🚇 Метро</div>
-        <div class="card-body">Перепрыгнуть на противоположную сторону поля — <b>${esc(TILES[mto].name)}</b>?</div>
-        <div class="modal-btns">
-          <button class="btn gold" onclick="sendAction({type:'metroJump'})">Ехать 🚇</button>
-          <button class="btn" onclick="sendAction({type:'metroStay'})">Остаться</button>
-        </div>`);
-    } else {
-      openModal(`<div class="modal-title">🚇 Метро</div>
-        <div class="card-body">${esc(s.players[s.turn].name)} решает, ехать ли на метро…</div>`);
-    }
-    return;
-  }
-
   if (s.pendingBuy !== null) {
-    const t = TILES[s.pendingBuy];
+    const t = BOARD[s.pendingBuy];
     if (me === s.turn) {
       const canAfford = s.players[me].money >= t.price;
       openModal(`<div class="modal-title">Купить участок?</div>
@@ -446,7 +452,7 @@ function renderModals() {
     const sum = side => {
       const parts = [];
       if (side.money) parts.push(`${CUR}${side.money}`);
-      side.props.forEach(i => parts.push(esc(TILES[i].name)));
+      side.props.forEach(i => parts.push(esc(BOARD[i].name)));
       return parts.length ? parts.join(', ') : '—';
     };
     const body = `<div class="modal-title">🤝 Обмен</div>
@@ -493,7 +499,7 @@ function closeModal() {
 }
 
 function deedHTML(i) {
-  const t = TILES[i];
+  const t = BOARD[i];
   let rows = '';
   if (t.type === 'prop') {
     rows = `<tr><td>Аренда</td><td>${CUR}${t.rent[0]}</td></tr>
@@ -526,9 +532,9 @@ function showPlayerHoldings(pi) {
   if (!s || !s.players[pi]) return;
   const p = s.players[pi];
   const owned = Object.keys(s.props).map(Number).filter(i => s.props[i].owner === pi);
-  const worth = owned.reduce((a, i) => a + TILES[i].price, 0);
+  const worth = owned.reduce((a, i) => a + BOARD[i].price, 0);
   const rows = owned.length ? owned.map(i => {
-    const t = TILES[i], ps = s.props[i];
+    const t = BOARD[i], ps = s.props[i];
     const bar = t.type === 'prop' ? GROUP_COLORS[t.group] : '#666';
     const extra = ps.mortgaged ? ' <span class="hold-mort">залог</span>'
       : ps.houses ? ' ' + (ps.houses === 5 ? '🏨' : '🏡'.repeat(ps.houses)) : '';
@@ -579,7 +585,7 @@ function showReaction(pi, emoji) {
 }
 
 function showTileInfo(i) {
-  const t = TILES[i];
+  const t = BOARD[i];
   if (!NET.state || !NET.state.props[i]) return;
   const ps = NET.state.props[i];
   const owner = ps.owner >= 0 ? esc(NET.state.players[ps.owner].name) : 'Банк';
@@ -595,7 +601,7 @@ function openManage(kind) {
   const titles = { build: '🏠 Строительство', sellHouse: '🏚 Продажа построек', mortgage: '🏦 Залог', redeem: '📜 Выкуп из залога' };
   const rows = [];
   Object.keys(s.props).map(Number).forEach(i => {
-    const t = TILES[i], ps = s.props[i];
+    const t = BOARD[i], ps = s.props[i];
     if (ps.owner !== me) return;
     let ok = false, label = '';
     if (kind === 'build' && t.type === 'prop') {
@@ -633,7 +639,7 @@ function openTrade() {
   const propList = (owner, cls) => Object.keys(s.props).map(Number)
     .filter(i => s.props[i].owner === owner && s.props[i].houses === 0)
     .map(i => `<label class="tr-prop"><input type="checkbox" class="${cls}" value="${i}">
-      <span class="mng-dot" style="background:${TILES[i].type === 'prop' ? GROUP_COLORS[TILES[i].group] : '#666'}"></span>${esc(TILES[i].name)}${s.props[i].mortgaged ? ' (залог)' : ''}</label>`).join('') || '<div class="wait-note">Нет свободных участков</div>';
+      <span class="mng-dot" style="background:${BOARD[i].type === 'prop' ? GROUP_COLORS[BOARD[i].group] : '#666'}"></span>${esc(BOARD[i].name)}${s.props[i].mortgaged ? ' (залог)' : ''}</label>`).join('') || '<div class="wait-note">Нет свободных участков</div>';
 
   const renderFor = to => {
     openModal(`<div class="modal-title">🤝 Предложить обмен</div>
@@ -893,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navigator.clipboard?.writeText(NET.roomCode);
     TG.haptic('light');
     $('#btn-copy').textContent = '✓';
-    setTimeout(() => $('#btn-copy').textContent = 'Копировать', 1200);
+    setTimeout(() => $('#btn-copy').textContent = 'Коп��ровать', 1200);
   });
 
   $('#btn-invite').addEventListener('click', () => {
