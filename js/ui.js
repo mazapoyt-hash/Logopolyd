@@ -162,6 +162,7 @@ function confettiBurst() {
 
 // ---------- Card draw animation ----------
 function showCardFx(card0) {
+  if (NET.state && NET.state.winner !== null) return;
   const isChance = card0.deck === 'ШАНС';
   const cls = isChance ? 'chance' : 'chest';
   const fx = $('#card-fx'), card = $('#fx-card'), inner = $('#fx-inner');
