@@ -103,7 +103,7 @@ const DEFAULT_SETTINGS = {
   turnTimer: 0,         // seconds per turn, 0 = off (auto-ends stalled turns)
   auction: false,       // declined/unaffordable tiles go to auction
   freeParkingPot: false,// taxes & fines pile in the center, claimed on Free Parking
-  innerCircle: true,    // metro inner ring: outer stations lead into a 24-tile inner circle
+  innerCircle: false,   // OFF by default — opt-in modification. When on, outer stations lead into a 24-tile inner ring.
   speedDie: false,      // extra speed die for faster games
   theme: 'classic',     // board skin
 };
