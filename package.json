@@ -1,0 +1,10 @@
+{
+  "name": "monopoly-online",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Telegram Mini App Monopoly with token skins and Telegram Stars shop",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.4"
+  }
+}

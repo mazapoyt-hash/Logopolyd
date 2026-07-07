@@ -715,6 +715,14 @@ document.addEventListener('DOMContentLoaded', () => {
     setLang(b.dataset.lang);
   });
 
+  // ---- skin shop: load inventory (backend if in Telegram, else local cache)
+  // and open the shop overlay from the lobby button.
+  if (typeof SHOP !== 'undefined') {
+    SHOP.load();
+    const shopBtn = $('#btn-shop');
+    if (shopBtn) shopBtn.addEventListener('click', () => SHOP.open());
+  }
+
   // ---- emoji quick reactions (throttled to avoid spam) ----
   let lastReact = 0;
   $('#react-bar').addEventListener('click', e => {
