@@ -513,6 +513,15 @@ const B3D = (() => {
     const o = overviewFor(cam.flat);
     cam.pos.copy(o.pos); cam.look.copy(o.look);
   }
+  // Close follow framing for a token at world position `tp`.
+  function followTarget(tp) {
+    const dir = new THREE.Vector2(tp.x, tp.z);
+    if (dir.lengthSq() < 0.01) dir.set(0, 1); else dir.normalize();
+    return {
+      pos: new THREE.Vector3(tp.x + dir.x * 3.6, TOP + 4.4, tp.z + dir.y * 3.6),
+      look: new THREE.Vector3(tp.x, TOP + 0.2, tp.z),
+    };
+  }
 
   // ---------- tweens ----------
   function tween(dur, fn) {
@@ -534,11 +543,8 @@ const B3D = (() => {
   // camera follow: glide in close and orbit around the board with the token,
   // always looking at it — the cinematic follow the game had originally.
   if (cam.mode === 'follow' && tokens[cam.followPi]) {
-    const tp = tokens[cam.followPi].group.position;
-    const dir = new THREE.Vector2(tp.x, tp.z);
-    if (dir.lengthSq() < 0.01) dir.set(0, 1); else dir.normalize();
-    cam.pos.set(tp.x + dir.x * 3.6, TOP + 4.4, tp.z + dir.y * 3.6);
-    cam.look.set(tp.x, TOP + 0.2, tp.z);
+    const t = followTarget(tokens[cam.followPi].group.position);
+    cam.pos.copy(t.pos); cam.look.copy(t.look);
   }
   camera.position.lerp(cam.pos, 0.06);
   curLook.lerp(cam.look, 0.09);
@@ -707,7 +713,22 @@ const B3D = (() => {
       // race where a heartbeat broadcast snapped the token to `to` already,
       // which used to make the hops play in-place and look like a teleport.
       tok.group.position.copy(tileWorld(from));
-      cam.mode = 'follow'; cam.followPi = pi;
+      cam.followPi = pi;
+      // Intro: smoothly fly the camera in and frame the token BEFORE it starts
+      // walking, so the move doesn't look jerky. During 'intro' the loop's
+      // follow recompute is skipped and cam.pos tracks the camera (no lerp fight).
+      {
+        const tgt = followTarget(tok.group.position);
+        const startP = camera.position.clone(), startL = curLook.clone();
+        cam.mode = 'intro';
+        await tween(520, k => {
+          const e = easeInOut(k);
+          camera.position.lerpVectors(startP, tgt.pos, e);
+          curLook.lerpVectors(startL, tgt.look, e);
+          cam.pos.copy(camera.position); cam.look.copy(curLook);
+        });
+        cam.mode = 'follow';
+      }
       // ring-aware stepping: outer ring = 40 tiles (base 0), inner = 24 (base 40)
       const base = from >= INNER_BASE ? INNER_BASE : 0;
       const len = from >= INNER_BASE ? INNER_COUNT : 40;
