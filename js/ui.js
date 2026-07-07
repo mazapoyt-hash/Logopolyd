@@ -60,9 +60,9 @@ function placeAllTokens(s) {
   B3D.snapTokens(fxq.disp, s.players);
 }
 
-async function walkToken(s, pi, from, to, jump = false) {
+async function walkToken(s, pi, from, to, jump = false, back = false) {
   await B3D.moveToken(pi, from, to, {
-    jump,
+    jump, back,
     onHop: kind => (kind === 'fly' ? snd.card() : snd.hop()),
   });
   fxq.disp[pi] = to;
@@ -120,7 +120,7 @@ function renderFx(s) {
         await sleep(150);
       });
     } else if (ev.kind === 'move') {
-      queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump));
+      queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump, ev.back));
     } else if (ev.kind === 'card') {
       queueFx(async () => {
         cardFx.key = ev.deck + ev.text + ev.player;

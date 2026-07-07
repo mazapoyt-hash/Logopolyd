@@ -298,6 +298,52 @@ const B3D = (() => {
     return g;
   }
 
+  // ---------- jail cage (bars around a jailed token) ----------
+  function buildCage() {
+    const g = new THREE.Group();
+    // own material instance per cage so we can fade just this one when it breaks
+    const mat = new THREE.MeshStandardMaterial({ color: '#aab0ba', metalness: 0.9, roughness: 0.3, transparent: true, opacity: 1 });
+    g._mat = mat;
+    const R = 0.24, H = 0.66;
+    const vGeo = new THREE.CylinderGeometry(0.014, 0.014, H, 8);
+    // 8 vertical bars: 4 corners + 4 edge midpoints
+    [[R, R], [R, -R], [-R, R], [-R, -R], [R, 0], [-R, 0], [0, R], [0, -R]].forEach(([x, z]) => {
+      const b = new THREE.Mesh(vGeo, mat);
+      b.position.set(x, H / 2, z); b.castShadow = true; g.add(b);
+    });
+    // top frame (4 horizontal bars)
+    const hGeo = new THREE.CylinderGeometry(0.014, 0.014, 2 * R, 8);
+    [[[0, H, R], [0, 0, Math.PI / 2]], [[0, H, -R], [0, 0, Math.PI / 2]],
+     [[R, H, 0], [Math.PI / 2, 0, 0]], [[-R, H, 0], [Math.PI / 2, 0, 0]]].forEach(([pos, rot]) => {
+      const b = new THREE.Mesh(hGeo, mat);
+      b.position.set(...pos); b.rotation.set(...rot); g.add(b);
+    });
+    return g;
+  }
+
+  // Attach a cage when a token is jailed, and "break" it (bars fly up + fade)
+  // when the token is freed. Guarded by tok.cage so repeated state syncs no-op.
+  function setTokenJail(pi, on) {
+    const tok = tokens[pi];
+    if (!tok) return;
+    if (on && !tok.cage) {
+      const cage = buildCage();
+      tok.group.add(cage);
+      tok.cage = cage;
+      cage.scale.y = 0.01;
+      tween(320, k => { cage.scale.y = easeOut(k); });
+    } else if (!on && tok.cage) {
+      const cage = tok.cage; tok.cage = null;
+      tween(460, k => {
+        const e = easeOut(k);
+        cage.position.y = e * 0.8;
+        cage.rotation.y = e * 1.1;
+        cage.scale.setScalar(1 + e * 0.35);
+        cage._mat.opacity = 1 - k;
+      }).then(() => { tok.group.remove(cage); cage._mat.dispose(); });
+    }
+  }
+
   // ---------- houses ----------
   const HOUSE_MAT = new THREE.MeshStandardMaterial({ color: '#1fa84f', roughness: 0.5 });
   const ROOF_MAT = new THREE.MeshStandardMaterial({ color: '#157a38', roughness: 0.5 });
@@ -529,6 +575,8 @@ const B3D = (() => {
   }
   const easeOut = k => 1 - Math.pow(1 - k, 3);
   const easeInOut = k => (k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2);
+  // smootherstep: zero velocity AND acceleration at both ends → very gentle glide
+  const smoother = k => k * k * k * (k * (k * 6 - 15) + 10);
 
   // ---------- render loop ----------
   function loop() {
@@ -687,6 +735,7 @@ const B3D = (() => {
           tokens[pi] = { group: g, colorIdx: p.color };
         }
         tokens[pi].group.visible = !p.bankrupt;
+        setTokenJail(pi, !!p.inJail && !p.bankrupt);
       });
     },
 
@@ -706,7 +755,7 @@ const B3D = (() => {
       });
     },
 
-    async moveToken(pi, from, to, { jump = false, onHop = null } = {}) {
+    async moveToken(pi, from, to, { jump = false, onHop = null, back = false } = {}) {
       const tok = tokens[pi];
       if (!tok) return;
       // Always start the walk from the EXACT `from` tile. Guards against any
@@ -735,8 +784,8 @@ const B3D = (() => {
         // extra lift scales with how far the camera has to swing around
         const lift = 1.5 + Math.abs(da) / Math.PI * 3.5;
         cam.mode = 'intro';
-        await tween(680, k => {
-          const e = easeInOut(k);
+        await tween(950, k => {
+          const e = smoother(k);
           const ang = a0 + da * e, rad = r0 + (r1 - r0) * e;
           const y = startP.y + (tgt.pos.y - startP.y) * e + Math.sin(e * Math.PI) * lift;
           camera.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
@@ -751,8 +800,10 @@ const B3D = (() => {
       const base = from >= INNER_BASE ? INNER_BASE : 0;
       const len = from >= INNER_BASE ? INNER_COUNT : 40;
       const sameRing = (to >= INNER_BASE ? INNER_BASE : 0) === base;
-      let steps = sameRing ? (to - from + len) % len : 0, dir = 1;
-      if (sameRing && steps > len / 2) { dir = -1; steps = len - steps; }
+      // Walk in the REAL direction of play (from the game logic), not a guessed
+      // shortest path. Forward for dice rolls, backward only for "back N" cards.
+      const dir = back ? -1 : 1;
+      let steps = sameRing ? (dir === 1 ? (to - from + len) % len : (from - to + len) % len) : 0;
       // Only a genuine "jump" (metro warp between rings) flies through the air.
       // Every dice roll walks tile-by-tile within its ring.
       if (jump || !sameRing || steps === 0) {
