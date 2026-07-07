@@ -248,6 +248,11 @@ function landOn(state, pi, diceSum, rentMult = 1, skipMetro = false) {
       addToPot(state, t.amount);
       glog(state, `${p.name} платит налог ${CUR}${t.amount}`);
       break;
+    case 'bonus':
+      // inner-ring money-only tile: pure gain, never moves the player
+      p.money += t.amount;
+      glog(state, `${p.name} получает бонус ${CUR}${t.amount} 🎁`);
+      break;
     case 'chance': drawCard(state, pi, 'chance', diceSum); break;
     case 'chest': drawCard(state, pi, 'chest', diceSum); break;
     case 'gotojail': sendToJail(state, pi); break;

@@ -123,40 +123,43 @@ const BOARD_THEMES = {
 // station teleports you into this inner ring; you leave again by landing on an
 // inner metro tile, which returns you to the station you came from.
 //
-// 24 tiles total, absolute board indices 40..63. Like Rento's inner circle it
-// mixes country properties with special squares — not only streets:
-//   - metro tiles at relative 0, 6, 12, 18 (the ring "corners" = exits)
-//   - four color groups of buyable countries (4 per side)
-//   - Chance / Community Chest / Tax squares sprinkled between them.
+// 24 tiles total, absolute board indices 40..63. Layout per the metro concept:
+//   - 4 metro tiles at relative 0, 6, 12, 18 (the ring "corners" = exits)
+//   - 4 color groups of 2 buyable countries each (8 lands total)
+//   - the remaining 12 squares are money-only BONUS / TAX tiles.
+//
+// IMPORTANT: the inner ring intentionally has NO Chance/Chest tiles. Those draw
+// cards whose moveTo/jail actions use OUTER-ring indices, which would teleport a
+// player out of the inner ring and corrupt their ring state. Bonus/Tax tiles
+// only change money, so they never move the player and keep the ring consistent.
 const OUTER_STATIONS = [5, 15, 25, 35];   // outer rail tiles that lead inside
 const INNER_BASE = 40;                     // absolute index of inner tile 0
 const INNER_COUNT = 24;
 
 const INNER_TILES = (() => {
   // Per-side blueprint: 6 tiles each (index 0 is always the metro corner).
-  // 's' = special square, otherwise the k-th country of that side's group.
+  // 'b' = bonus (gain), 't' = tax (pay); otherwise the next country of the side.
   const sides = [
     { g: 'i-cyan',  price: 120, house: 60,  rent: [8, 40, 100, 300, 450, 600],
-      names: ['Мексика', 'Бразилия', 'Аргентина', 'Чили'],
-      plan: ['metro', 'prop', 'prop', 'chance', 'prop', 'prop'] },
+      names: ['Куба', 'Перу'],
+      plan: ['metro', 'prop', 'bonus', 'prop', 'tax', 'bonus'] },
     { g: 'i-lime',  price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950],
-      names: ['Египет', 'Марокко', 'Кения', 'ЮАР'],
-      plan: ['metro', 'prop', 'prop', 'chest', 'prop', 'prop'] },
+      names: ['Тунис', 'Гана'],
+      plan: ['metro', 'prop', 'tax', 'prop', 'bonus', 'tax'] },
     { g: 'i-amber', price: 240, house: 150, rent: [20, 100, 300, 750, 925, 1100],
-      names: ['Индия', 'Таиланд', 'Вьетнам', 'Индонезия'],
-      plan: ['metro', 'prop', 'prop', 'tax', 'prop', 'prop'] },
+      names: ['Непал', 'Катар'],
+      plan: ['metro', 'prop', 'bonus', 'prop', 'tax', 'bonus'] },
     { g: 'i-rose',  price: 320, house: 200, rent: [28, 150, 450, 1000, 1200, 1400],
-      names: ['Китай', 'Корея', 'Сингапур', 'ОАЭ'],
-      plan: ['metro', 'prop', 'prop', 'chance', 'prop', 'prop'] },
+      names: ['Оман', 'Фиджи'],
+      plan: ['metro', 'prop', 'tax', 'prop', 'bonus', 'tax'] },
   ];
   const tiles = [];
   for (const side of sides) {
     let pi = 0;   // country index for this side
     for (const kind of side.plan) {
       if (kind === 'metro') tiles.push({ name: 'Metro', type: 'metro' });
-      else if (kind === 'chance') tiles.push({ name: 'Chance', type: 'chance' });
-      else if (kind === 'chest') tiles.push({ name: 'Community Chest', type: 'chest' });
-      else if (kind === 'tax') tiles.push({ name: 'Налог', type: 'tax', amount: 150 });
+      else if (kind === 'bonus') tiles.push({ name: 'Бонус', type: 'bonus', amount: 100 });
+      else if (kind === 'tax') tiles.push({ name: 'Налог', type: 'tax', amount: 100 });
       else tiles.push({
         name: side.names[pi++], type: 'prop', group: side.g,
         price: side.price, house: side.house, rent: side.rent.slice(),

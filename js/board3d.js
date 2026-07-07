@@ -190,9 +190,10 @@ const B3D = (() => {
         ctx.strokeRect(-lw / 2 + 4, -lh / 2 + 4, lw - 8, lh * 0.24);
       }
       // icon for special tiles
-      const icons = { chest: '▣', chance: '?', tax: '◆', rail: '▬', util: '◉', };
+      const icons = { chest: '▣', chance: '?', tax: '◆', rail: '▬', util: '◉', bonus: '＋' };
       if (icons[t.type]) {
-        ctx.fillStyle = t.type === 'chance' ? '#c0511d' : t.type === 'chest' ? '#1d4e96' : '#3a382f';
+        ctx.fillStyle = t.type === 'chance' ? '#c0511d' : t.type === 'chest' ? '#1d4e96'
+          : t.type === 'bonus' ? '#1f9d55' : t.type === 'tax' ? '#b02020' : '#3a382f';
         ctx.font = `800 ${Math.round(K * 0.34)}px Rubik, sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(icons[t.type], 0, -lh * 0.10);
@@ -203,11 +204,15 @@ const B3D = (() => {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       let nameFont = Math.round(K * 0.20);
       let lines;
-      // shrink font a little (down to a floor) until it fits in <=2 lines
+      const maxW = lw - 12, floor = Math.round(K * 0.105);
+      // shrink font until the text fits in <=2 lines AND every line fits the
+      // tile width. This also handles long single words (e.g. "Португалия")
+      // that cannot wrap — they simply scale down instead of overflowing.
       for (;;) {
         ctx.font = `800 ${nameFont}px Rubik, sans-serif`;
-        lines = wrap(ctx, shortName(t), lw - 12);
-        if (lines.length <= 2 || nameFont <= Math.round(K * 0.14)) break;
+        lines = wrap(ctx, shortName(t), maxW);
+        const widest = Math.max(...lines.map(l => ctx.measureText(l).width));
+        if ((lines.length <= 2 && widest <= maxW) || nameFont <= floor) break;
         nameFont -= 2;
       }
       const lineH = nameFont * 1.06;
