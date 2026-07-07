@@ -59,6 +59,7 @@ function saveSession() {
   try {
     localStorage.setItem(SES_KEY, JSON.stringify({
       roomCode: NET.roomCode, peerId: NET.myPeerId, name: NET.myName, isHost: NET.isHost, photo: NET.myPhoto,
+      solo: !!NET.solo,
     }));
   } catch (e) { /* private mode */ }
 }
@@ -112,7 +113,7 @@ let heartbeatTimer = null;
 function startHeartbeat() {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
-    if (!NET.isHost || !NET.client) return;
+    if (!NET.isHost || (!NET.client && !NET.solo)) return;
     // turn timer: if the active player's deadline passed, auto-resolve the turn
     if (NET.state && NET.state.turnDeadline && NET.state.winner === null
         && Date.now() > NET.state.turnDeadline) {
@@ -159,6 +160,10 @@ function hostGame(name, cb, brokerIdx = 0) {
 function hostResume(session, cb) {
   const saved = loadHostState();
   if (!saved || saved.roomCode !== session.roomCode) { clearSession(); cb(new Error('no saved state')); return; }
+  // never resume into a finished game — that traps the player in the victory screen
+  if (saved.state && saved.state.winner !== null && saved.state.winner !== undefined) {
+    clearSession(); cb(new Error('game finished')); return;
+  }
   const rc = session.roomCode;
   const broker = BROKERS.find(b => b.key === rc[rc.length - 1]) || BROKERS[0];
   NET.isHost = true;
@@ -243,6 +248,12 @@ function hostOnData(data) {
     const msg = { name: String(data.name).slice(0, 14), text: String(data.text).slice(0, 300) };
     hostBroadcast({ type: 'chat', ...msg }, 1);
     NET.onChat(msg);
+  } else if (data.type === 'react' && NET.state) {
+    const pi = NET.state.players.findIndex(p => p.peerId === data.from);
+    if (pi >= 0 && typeof NET.onReact === 'function') {
+      hostBroadcast({ type: 'react', pi, emoji: String(data.emoji).slice(0, 8) }, 0);
+      NET.onReact(pi, data.emoji);
+    }
   }
 }
 
@@ -254,6 +265,68 @@ function hostStartGame() {
   NET.state = newGameState(NET.lobbyPlayers, NET.settings);
   glog(NET.state, `🎲 Игра началась! Ходит ${NET.state.players[0].name}`);
   hostBroadcastState();
+  NET.onUpdate();
+}
+
+// ---------- SOLO (offline vs bots) ----------
+// Same host code path, just no MQTT client: pub() silently no-ops.
+let botTimer = null;
+
+function startBotLoop() {
+  stopBotLoop();
+  botTimer = setInterval(() => {
+    if (!NET.isHost || !NET.state || NET.state.winner !== null) return;
+    const s = NET.state;
+    // one bot action per tick keeps the pace watchable
+    for (let i = 0; i < s.players.length; i++) {
+      if (!isBot(s.players[i])) continue;
+      const act = botDecide(s, i);
+      if (act) {
+        applyAction(s, i, act);
+        hostBroadcastState();
+        NET.onUpdate();
+        return;
+      }
+    }
+  }, 1800);
+}
+function stopBotLoop() {
+  if (botTimer) { clearInterval(botTimer); botTimer = null; }
+}
+
+function soloGame(name, botCount) {
+  NET.isHost = true;
+  NET.solo = true;
+  NET.myName = name;
+  NET.myPeerId = randId();
+  NET.roomCode = 'SOLO';
+  const bots = BOT_ROSTER.slice(0, Math.max(1, Math.min(4, botCount))).map((b, i) => ({
+    peerId: 'bot:' + i, name: `${b.emoji} ${b.name}`, photo: '',
+  }));
+  NET.lobbyPlayers = [{ peerId: NET.myPeerId, name, photo: NET.myPhoto || '' }, ...bots];
+  saveSession();
+  hostStartGame();
+  startBotLoop();
+  startHeartbeat(); // drives the turn timer in solo too
+}
+
+// Resume a solo game after a page refresh (no network involved).
+function soloResume(session, cb) {
+  const saved = loadHostState();
+  if (!saved || !saved.state) { clearSession(); cb(new Error('no saved solo state')); return; }
+  if (saved.state.winner !== null && saved.state.winner !== undefined) {
+    clearSession(); cb(new Error('game finished')); return;
+  }
+  NET.isHost = true;
+  NET.solo = true;
+  NET.myName = session.name;
+  NET.myPeerId = session.peerId;
+  NET.roomCode = 'SOLO';
+  NET.state = saved.state;
+  NET.lobbyPlayers = saved.lobbyPlayers || [];
+  startBotLoop();
+  startHeartbeat();
+  cb(null);
   NET.onUpdate();
 }
 
@@ -321,6 +394,8 @@ function joinGame(name, code, cb, resumePeerId = null) {
         if (NET.joined) clientApplyState(data.state);
       } else if (data.type === 'chat') {
         if (NET.joined) NET.onChat(data);
+      } else if (data.type === 'react') {
+        if (NET.joined && typeof NET.onReact === 'function') NET.onReact(data.pi, data.emoji);
       } else if (data.type === 'errmsg') {
         if (data.to === NET.myPeerId) {
           clearTimeout(timer);
@@ -340,6 +415,10 @@ function tryResume(onDone) {
   const ses = loadSession();
   if (!ses || !ses.roomCode || !ses.peerId) return false;
   if (ses.photo) NET.myPhoto = ses.photo;
+  if (ses.solo) {
+    soloResume(ses, err => onDone(err, ses));
+    return true;
+  }
   if (ses.isHost) {
     hostResume(ses, err => onDone(err, ses));
   } else {
@@ -354,6 +433,7 @@ function tryResume(onDone) {
 function leaveRoom() {
   clearSession();
   stopHeartbeat();
+  stopBotLoop();
   if (NET.client) {
     if (NET.isHost) hostBroadcast({ type: 'hostleave' }, 1);
     else pub(topicHost(NET.roomCode), { type: 'leave', from: NET.myPeerId }, 1);
@@ -383,5 +463,18 @@ function sendChat(text) {
     NET.onChat(msg);
   } else if (NET.client) {
     pub(topicHost(NET.roomCode), { type: 'chat', ...msg }, 1);
+  }
+}
+
+// Quick emoji reaction floating above the sender's plaque.
+function sendReaction(emoji) {
+  if (NET.isHost) {
+    const pi = myPlayerIndex();
+    if (pi >= 0 && NET.state) {
+      hostBroadcast({ type: 'react', pi, emoji }, 0);
+      if (typeof NET.onReact === 'function') NET.onReact(pi, emoji);
+    }
+  } else if (NET.client) {
+    pub(topicHost(NET.roomCode), { type: 'react', from: NET.myPeerId, emoji }, 0);
   }
 }
