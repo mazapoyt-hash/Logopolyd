@@ -313,8 +313,9 @@ function renderCenter() {
   if (s.winner !== null) hint = `🏆 ${t('winner')}: ${esc(s.players[s.winner].name)}!`;
   else if (myTurn) hint = s.rolled ? t('finishOrManage') : (p.inJail ? t('jailHint') : t('yourTurn'));
   else hint = `${t('turnOf')} ${esc(p.name)}…`;
-  // turn timer countdown
-  if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0) {
+  // turn timer countdown — hidden while dice/token animations play, so it
+  // doesn't keep ticking on-screen while the piece is still moving.
+  if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0 && fxBusy === 0) {
     const left = Math.max(0, Math.ceil((s.turnDeadline - Date.now()) / 1000));
     const warn = left <= 10 ? ' timer-warn' : '';
     hint += `<div class="turn-timer${warn}">⏱ ${left}s</div>`;
@@ -898,7 +899,7 @@ document.addEventListener('DOMContentLoaded', () => {
     navigator.clipboard?.writeText(NET.roomCode);
     TG.haptic('light');
     $('#btn-copy').textContent = '✓';
-    setTimeout(() => $('#btn-copy').textContent = 'Копировать', 1200);
+    setTimeout(() => $('#btn-copy').textContent = 'Коп��ровать', 1200);
   });
 
   $('#btn-invite').addEventListener('click', () => {

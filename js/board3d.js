@@ -330,7 +330,7 @@ const B3D = (() => {
   }
   function buildDeck(label, c1, c2) {
     const g = new THREE.Group();
-    const w = 2.1, d = 1.32, n = 5;
+    const w = 1.35, d = 0.86, n = 5;
     for (let i = 0; i < n; i++) {
       const top = i === n - 1;
       const mat = top
@@ -600,11 +600,11 @@ const B3D = (() => {
 
       // decks aligned with the diagonal plaque
       decks.chance = buildDeck('ШАНС', '#f09545', '#c0511d');
-      decks.chance.position.set(-1.85, TOP, -1.85);
+      decks.chance.position.set(-1.15, TOP, -1.15);
       decks.chance.rotation.y = -Math.PI / 4.3;
       scene.add(decks.chance);
       decks.chest = buildDeck('КАЗНА', '#4a90dd', '#1d4e96');
-      decks.chest.position.set(1.85, TOP, 1.85);
+      decks.chest.position.set(1.15, TOP, 1.15);
       decks.chest.rotation.y = -Math.PI / 4.3;
       scene.add(decks.chest);
 
