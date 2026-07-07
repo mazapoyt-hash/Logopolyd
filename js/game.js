@@ -120,7 +120,11 @@ function movePlayer(state, pi, steps) {
   const base = ringBase(old), len = ringLen(old);
   const rel = (((old - base) + steps) % len + len) % len;
   p.pos = base + rel;
-  pushEv(state, { kind: 'move', pi, from: old, to: p.pos, jump: false });
+  // Pass the ACTUAL walk direction (sign of steps) so the animation walks the
+  // real path. Dice rolls always move forward; only "back N" cards move back.
+  // Without this the renderer guessed via shortest-path, which reversed inner
+  // ring walks longer than half the ring (len 24) — looking inconsistent.
+  pushEv(state, { kind: 'move', pi, from: old, to: p.pos, jump: false, back: steps < 0 });
   // GO bonus only when looping the OUTER ring forward past start
   if (base === 0 && steps > 0 && p.pos < old) {
     p.money += 200;
