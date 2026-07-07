@@ -178,7 +178,7 @@ const B3D = (() => {
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         const nm = shortName(t);
         if (i === 0) {
-          ctx.fillText('GO', 0, K * 0.14);
+          ctx.fillText(tileName('GO'), 0, K * 0.14);
           ctx.font = `800 ${Math.round(K * 0.5)}px Rubik, sans-serif`;
           ctx.fillText('←', 0, -K * 0.28);
         } else {
@@ -233,7 +233,7 @@ const B3D = (() => {
       ctx.restore();
     });
 
-    // red diagonal MONOPOLY plaque in the center
+    // red diagonal brand plaque in the center
     ctx.save();
     ctx.translate(TEX / 2, TEX / 2);
     ctx.rotate(-Math.PI / 4.3);
@@ -250,7 +250,7 @@ const B3D = (() => {
     ctx.fillStyle = '#fff';
     ctx.font = `800 ${Math.round(ph2 * 0.62)}px Rubik, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('MONOPOLY', 0, 4);
+    ctx.fillText(t('appName'), 0, 4);
     ctx.restore();
 
     if (boardTex) boardTex.needsUpdate = true;
