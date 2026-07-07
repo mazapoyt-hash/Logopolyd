@@ -26,6 +26,7 @@ const B3D = (() => {
   let lastPropsKey = '';
   let curTheme = BOARD_THEMES.classic;   // active board skin
   let lastState = null;                  // last state drawn (for theme re-render)
+  let innerOn = false;                   // inner-ring ("metro") mode active this game
   const anims = [];           // active tweens
   const cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), mode: 'overview', followPi: -1, flat: false };
   let curLook = new THREE.Vector3(0, 0, 0);
@@ -102,7 +103,10 @@ const B3D = (() => {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, TEX, TEX);
 
-    BOARD.forEach((t, i) => {
+    // Standard mode draws only the 40 outer tiles; the inner ring appears
+    // only when the "metro" modification is enabled for this game.
+    const drawTiles = innerOn ? BOARD : TILES;
+    drawTiles.forEach((t, i) => {
       const R = tileRect(i);
       const px = (R.x - R.w / 2 + HALF) * K, py = (R.z - R.d / 2 + HALF) * K;
       const pw = R.w * K, ph = R.d * K;
@@ -222,7 +226,8 @@ const B3D = (() => {
     ctx.save();
     ctx.translate(TEX / 2, TEX / 2);
     ctx.rotate(-Math.PI / 4.3);
-    const pw2 = TEX * 0.26, ph2 = TEX * 0.058;
+    // shrink the center plaque only when the inner ring occupies the middle
+    const pw2 = TEX * (innerOn ? 0.26 : 0.42), ph2 = TEX * (innerOn ? 0.058 : 0.085);
     ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 26; ctx.shadowOffsetY = 12;
     const grad = ctx.createLinearGradient(0, -ph2 / 2, 0, ph2 / 2);
     grad.addColorStop(0, '#f04338'); grad.addColorStop(0.55, '#d21f1f'); grad.addColorStop(1, '#a91414');
@@ -330,7 +335,8 @@ const B3D = (() => {
   }
   function buildDeck(label, c1, c2) {
     const g = new THREE.Group();
-    const w = 1.35, d = 0.86, n = 5;
+    // smaller cards in inner-ring mode so they fit the tighter center hollow
+    const w = innerOn ? 1.35 : 2.1, d = innerOn ? 0.86 : 1.32, n = 5;
     for (let i = 0; i < n; i++) {
       const top = i === n - 1;
       const mat = top
@@ -343,6 +349,21 @@ const B3D = (() => {
       g.add(box);
     }
     return g;
+  }
+
+  // (Re)build both card decks, sizing/placing them for the current layout.
+  function rebuildDecks() {
+    if (!scene) return;
+    ['chance', 'chest'].forEach(k => { if (decks[k]) { scene.remove(decks[k]); decks[k] = null; } });
+    const dP = innerOn ? 1.15 : 1.85;
+    decks.chance = buildDeck('ШАНС', '#f09545', '#c0511d');
+    decks.chance.position.set(-dP, TOP, -dP);
+    decks.chance.rotation.y = -Math.PI / 4.3;
+    scene.add(decks.chance);
+    decks.chest = buildDeck('КАЗНА', '#4a90dd', '#1d4e96');
+    decks.chest.position.set(dP, TOP, dP);
+    decks.chest.rotation.y = -Math.PI / 4.3;
+    scene.add(decks.chest);
   }
 
   // ---------- procedural wood-plank texture (no ugly tiling) ----------
@@ -505,18 +526,17 @@ const B3D = (() => {
       a.fn(k);
       if (k >= 1) { anims.splice(i, 1); a.res(); }
     }
-  // camera follow: keep the fixed overview angle, only gently lean toward the
-  // active token (a subtle parallax nudge). No orbiting, no flipping, no zoom
-  // dive into the board — that was disorienting during a walk.
+  // camera follow: glide in close and orbit around the board with the token,
+  // always looking at it — the cinematic follow the game had originally.
   if (cam.mode === 'follow' && tokens[cam.followPi]) {
     const tp = tokens[cam.followPi].group.position;
-    const o = overviewFor(cam.flat);
-    cam.pos.set(o.pos.x + tp.x * 0.32, o.pos.y, o.pos.z + tp.z * 0.32);
-    cam.look.set(tp.x * 0.55, TOP + 0.2, tp.z * 0.55);
+    const dir = new THREE.Vector2(tp.x, tp.z);
+    if (dir.lengthSq() < 0.01) dir.set(0, 1); else dir.normalize();
+    cam.pos.set(tp.x + dir.x * 3.6, TOP + 4.4, tp.z + dir.y * 3.6);
+    cam.look.set(tp.x, TOP + 0.2, tp.z);
   }
-  // slower lerp = smoother, less jerky glide
-  camera.position.lerp(cam.pos, 0.045);
-  curLook.lerp(cam.look, 0.06);
+  camera.position.lerp(cam.pos, 0.06);
+  curLook.lerp(cam.look, 0.09);
     camera.lookAt(curLook);
     renderer.render(scene, camera);
   }
@@ -598,15 +618,8 @@ const B3D = (() => {
       board.castShadow = board.receiveShadow = true;
       scene.add(board);
 
-      // decks aligned with the diagonal plaque
-      decks.chance = buildDeck('ШАНС', '#f09545', '#c0511d');
-      decks.chance.position.set(-1.15, TOP, -1.15);
-      decks.chance.rotation.y = -Math.PI / 4.3;
-      scene.add(decks.chance);
-      decks.chest = buildDeck('КАЗНА', '#4a90dd', '#1d4e96');
-      decks.chest.position.set(1.15, TOP, 1.15);
-      decks.chest.rotation.y = -Math.PI / 4.3;
-      scene.add(decks.chest);
+      // decks aligned with the diagonal plaque (positions/size adapt to mode)
+      rebuildDecks();
 
       // dice
       dice = [buildDie(false), buildDie(false), buildDie(true)];
@@ -625,7 +638,8 @@ const B3D = (() => {
         if (!hit) return;
         const { x, z } = hit.point;
         if (Math.abs(x) > HALF || Math.abs(z) > HALF) return;
-        for (let i = 0; i < BOARD.length; i++) {
+        const nTiles = innerOn ? BOARD.length : 40;
+        for (let i = 0; i < nTiles; i++) {
           const t = tileRect(i);
           if (x >= t.x - t.w / 2 && x <= t.x + t.w / 2 && z >= t.z - t.d / 2 && z <= t.z + t.d / 2) { onTileClick(i); return; }
         }
@@ -765,7 +779,11 @@ const B3D = (() => {
       // apply the room's chosen board skin
       const themeName = (state.settings && state.settings.theme) || 'classic';
       curTheme = BOARD_THEMES[themeName] || BOARD_THEMES.classic;
-      const key = themeName + '|' + JSON.stringify(state.props) + '|' + state.players.map(p => p.color + (p.bankrupt ? 'x' : '')).join(',');
+      // toggle the inner ring to match this game's settings (rebuild decks so
+      // their size/position fit the chosen layout)
+      const wantInner = !!(state.settings && state.settings.innerCircle);
+      if (wantInner !== innerOn) { innerOn = wantInner; rebuildDecks(); lastPropsKey = ''; }
+      const key = themeName + '|' + innerOn + '|' + JSON.stringify(state.props) + '|' + state.players.map(p => p.color + (p.bankrupt ? 'x' : '')).join(',');
       if (key === lastPropsKey) return;
       lastPropsKey = key;
       drawBoardTexture(state);
