@@ -717,17 +717,35 @@ const B3D = (() => {
       // Intro: smoothly fly the camera in and frame the token BEFORE it starts
       // walking, so the move doesn't look jerky. During 'intro' the loop's
       // follow recompute is skipped and cam.pos tracks the camera (no lerp fight).
+      // The camera sweeps AROUND the board on an arc (interpolating angle +
+      // radius around the center, with a vertical lift) instead of a straight
+      // line — a straight lerp would cut through the board and snap over the top
+      // when the token sits on the far side.
       {
         const tgt = followTarget(tok.group.position);
         const startP = camera.position.clone(), startL = curLook.clone();
+        // polar coords around board center (0,0)
+        const a0 = Math.atan2(startP.z, startP.x);
+        const a1 = Math.atan2(tgt.pos.z, tgt.pos.x);
+        let da = a1 - a0;
+        while (da > Math.PI) da -= 2 * Math.PI;
+        while (da < -Math.PI) da += 2 * Math.PI;
+        const r0 = Math.hypot(startP.x, startP.z);
+        const r1 = Math.hypot(tgt.pos.x, tgt.pos.z);
+        // extra lift scales with how far the camera has to swing around
+        const lift = 1.5 + Math.abs(da) / Math.PI * 3.5;
         cam.mode = 'intro';
-        await tween(520, k => {
+        await tween(680, k => {
           const e = easeInOut(k);
-          camera.position.lerpVectors(startP, tgt.pos, e);
+          const ang = a0 + da * e, rad = r0 + (r1 - r0) * e;
+          const y = startP.y + (tgt.pos.y - startP.y) * e + Math.sin(e * Math.PI) * lift;
+          camera.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
           curLook.lerpVectors(startL, tgt.look, e);
           cam.pos.copy(camera.position); cam.look.copy(curLook);
         });
         cam.mode = 'follow';
+        // brief beat so the framed shot reads before the token starts walking
+        await tween(320, () => {});
       }
       // ring-aware stepping: outer ring = 40 tiles (base 0), inner = 24 (base 40)
       const base = from >= INNER_BASE ? INNER_BASE : 0;
