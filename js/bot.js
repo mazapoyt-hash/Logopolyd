@@ -21,7 +21,7 @@ function botReserve(state) {
 
 // Rough value of a tile for trade/auction decisions.
 function tileValue(state, idx) {
-  const t = TILES[idx];
+  const t = BOARD[idx];
   if (!t || !t.price) return 0;
   let v = t.price;
   // tiles that complete (or block) a color group are worth more
@@ -48,7 +48,7 @@ function botDecide(state, pi) {
     if (withHouses.length) return { type: 'sellHouse', tile: Number(withHouses[0][0]) };
     const toMortgage = Object.entries(state.props)
       .filter(([i, ps]) => ps.owner === pi && !ps.mortgaged && ps.houses === 0)
-      .sort((a, b) => (TILES[a[0]].price || 0) - (TILES[b[0]].price || 0));
+      .sort((a, b) => (BOARD[a[0]].price || 0) - (BOARD[b[0]].price || 0));
     if (toMortgage.length) return { type: 'mortgage', tile: Number(toMortgage[0][0]) };
     return { type: 'bankrupt' };
   }
@@ -77,16 +77,9 @@ function botDecide(state, pi) {
   // ---- card shown: acknowledge ----
   if (state.pendingCard) return { type: 'dismissCard' };
 
-  // ---- metro choice: jump towards an unowned station ----
-  if (state.pendingMetro) {
-    const destOwner = state.props[state.pendingMetro.to]?.owner;
-    return (destOwner === -1 || destOwner === pi)
-      ? { type: 'metroJump' } : { type: 'metroStay' };
-  }
-
   // ---- buy decision ----
   if (state.pendingBuy !== null) {
-    const t = TILES[state.pendingBuy];
+    const t = BOARD[state.pendingBuy];
     const wantIt = p.money - t.price >= botReserve(state);
     return wantIt ? { type: 'buy' } : { type: 'declineBuy' };
   }
@@ -103,13 +96,13 @@ function botDecide(state, pi) {
 
   // ---- after rolling: build one house if it makes sense ----
   const buildable = [];
-  TILES.forEach((t, i) => {
+  BOARD.forEach((t, i) => {
     if (t.type !== 'prop') return;
     const ps = state.props[i];
     if (ps.owner !== pi || ps.mortgaged || ps.houses >= 5) return;
     const g = countGroup(state, t.group, pi);
     if (!g.monopoly) return;
-    const groupTiles = TILES.map((tt, j) => ({ tt, j })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
+    const groupTiles = BOARD.map((tt, j) => ({ tt, j })).filter(x => x.tt.type === 'prop' && x.tt.group === t.group);
     if (groupTiles.some(x => state.props[x.j].mortgaged)) return;
     const minH = Math.min(...groupTiles.map(x => state.props[x.j].houses));
     if (ps.houses > minH) return;
@@ -121,7 +114,7 @@ function botDecide(state, pi) {
   const mortgaged = Object.entries(state.props)
     .filter(([i, ps]) => ps.owner === pi && ps.mortgaged);
   for (const [i] of mortgaged) {
-    const cost = Math.ceil(TILES[i].price / 2 * 1.1);
+    const cost = Math.ceil(BOARD[i].price / 2 * 1.1);
     if (p.money - cost >= botReserve(state) + 150) return { type: 'redeem', tile: Number(i) };
   }
 

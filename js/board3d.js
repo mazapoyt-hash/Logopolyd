@@ -37,12 +37,34 @@ const B3D = (() => {
     if (i <= 30) return { r: 1, c: i - 19 };
     return { r: i - 29, c: 11 };
   }
-  function sideOf(i) { return i <= 10 ? 'bottom' : i <= 20 ? 'left' : i <= 30 ? 'top' : 'right'; }
+  function sideOf(i) {
+    if (i >= INNER_BASE) return innerSideOf(i - INNER_BASE);
+    return i <= 10 ? 'bottom' : i <= 20 ? 'left' : i <= 30 ? 'top' : 'right';
+  }
   // start coordinate of grid line n (1..12) along one axis
   function lineAt(n) { return -HALF + (n <= 1 ? 0 : CORNER + (n - 2) * CELL); }
   function spanOf(n) { return (n === 1 || n === 11) ? CORNER : CELL; }
+
+  // ---- inner ring ("metro" circle): a 7x7 grid, 24 perimeter tiles ----
+  // Sits inside the outer ring (whose inner edge is at ±4.5), spanning ±IN_HALF,
+  // leaving a small bare-field gap between the two rings. Center hollow keeps
+  // the card decks + dice tray. j = 0..23 counterclockwise, metros at 0/6/12/18.
+  const IN_N = 7, IN_HALF = 3.9, IN_CELL = (IN_HALF * 2) / IN_N;
+  function innerGrid(j) {
+    if (j <= 6) return { r: 6, c: 6 - j };   // bottom  (0..6)
+    if (j <= 12) return { r: 12 - j, c: 0 };  // left    (6..12)
+    if (j <= 18) return { r: 0, c: j - 12 };  // top     (12..18)
+    return { r: j - 18, c: 6 };               // right   (18..24)
+  }
+  function innerSideOf(j) { const { r, c } = innerGrid(j); return r === 6 ? 'bottom' : r === 0 ? 'top' : c === 0 ? 'left' : 'right'; }
+  function innerRect(j) {
+    const { r, c } = innerGrid(j);
+    return { x: -IN_HALF + (c + 0.5) * IN_CELL, z: -IN_HALF + (r + 0.5) * IN_CELL, w: IN_CELL, d: IN_CELL, side: innerSideOf(j) };
+  }
+
   // world rect of tile i: {x,z} center, {w,d} size
   function tileRect(i) {
+    if (i >= INNER_BASE) return innerRect(i - INNER_BASE);
     const { r, c } = gridPos(i);
     const x0 = lineAt(c), z0 = lineAt(r);
     const w = spanOf(c), d = spanOf(r);
@@ -80,7 +102,7 @@ const B3D = (() => {
     ctx.fillStyle = vg;
     ctx.fillRect(0, 0, TEX, TEX);
 
-    TILES.forEach((t, i) => {
+    BOARD.forEach((t, i) => {
       const R = tileRect(i);
       const px = (R.x - R.w / 2 + HALF) * K, py = (R.z - R.d / 2 + HALF) * K;
       const pw = R.w * K, ph = R.d * K;
@@ -125,7 +147,20 @@ const B3D = (() => {
       const lw = (R.side === 'left' || R.side === 'right') ? ph : pw;
       const lh = (R.side === 'left' || R.side === 'right') ? pw : ph;
 
-      const isCorner = i % 10 === 0;
+      // inner-ring metro tile: draw a distinct subway badge and stop
+      if (t.type === 'metro') {
+        ctx.fillStyle = '#1c1c22';
+        ctx.font = `800 ${Math.round(K * 0.4)}px Rubik, sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText('Ⓜ', 0, -lh * 0.06);
+        ctx.fillStyle = '#3a382f';
+        ctx.font = `800 ${Math.round(K * 0.13)}px Rubik, sans-serif`;
+        ctx.fillText('METRO', 0, lh * 0.30);
+        ctx.restore();
+        return;
+      }
+
+      const isCorner = i < INNER_BASE && i % 10 === 0;
       if (isCorner) {
         ctx.rotate(i === 0 ? -Math.PI / 4 : i === 10 ? 0 : i === 20 ? Math.PI / 4 : Math.PI / 4);
         ctx.fillStyle = i === 0 ? '#b02020' : '#1d1c18';
@@ -187,7 +222,7 @@ const B3D = (() => {
     ctx.save();
     ctx.translate(TEX / 2, TEX / 2);
     ctx.rotate(-Math.PI / 4.3);
-    const pw2 = TEX * 0.42, ph2 = TEX * 0.085;
+    const pw2 = TEX * 0.26, ph2 = TEX * 0.058;
     ctx.shadowColor = 'rgba(0,0,0,0.35)'; ctx.shadowBlur = 26; ctx.shadowOffsetY = 12;
     const grad = ctx.createLinearGradient(0, -ph2 / 2, 0, ph2 / 2);
     grad.addColorStop(0, '#f04338'); grad.addColorStop(0.55, '#d21f1f'); grad.addColorStop(1, '#a91414');
@@ -590,7 +625,7 @@ const B3D = (() => {
         if (!hit) return;
         const { x, z } = hit.point;
         if (Math.abs(x) > HALF || Math.abs(z) > HALF) return;
-        for (let i = 0; i < 40; i++) {
+        for (let i = 0; i < BOARD.length; i++) {
           const t = tileRect(i);
           if (x >= t.x - t.w / 2 && x <= t.x + t.w / 2 && z >= t.z - t.d / 2 && z <= t.z + t.d / 2) { onTileClick(i); return; }
         }
@@ -654,11 +689,15 @@ const B3D = (() => {
       // which used to make the hops play in-place and look like a teleport.
       tok.group.position.copy(tileWorld(from));
       cam.mode = 'follow'; cam.followPi = pi;
-      let steps = (to - from + 40) % 40, dir = 1;
-      if (steps >= 37) { dir = -1; steps = 40 - steps; }
-      // Only a genuine "jump" (metro/card/jail warp) flies through the air.
-      // Every dice roll walks tile-by-tile, even a max speed-die roll (18).
-      if (jump || steps === 0) {
+      // ring-aware stepping: outer ring = 40 tiles (base 0), inner = 24 (base 40)
+      const base = from >= INNER_BASE ? INNER_BASE : 0;
+      const len = from >= INNER_BASE ? INNER_COUNT : 40;
+      const sameRing = (to >= INNER_BASE ? INNER_BASE : 0) === base;
+      let steps = sameRing ? (to - from + len) % len : 0, dir = 1;
+      if (sameRing && steps > len / 2) { dir = -1; steps = len - steps; }
+      // Only a genuine "jump" (metro warp between rings) flies through the air.
+      // Every dice roll walks tile-by-tile within its ring.
+      if (jump || !sameRing || steps === 0) {
         const a = tok.group.position.clone(), b = tileWorld(to);
         if (onHop) onHop('fly');
         await tween(700, k => {
@@ -670,7 +709,7 @@ const B3D = (() => {
         tok.group.rotation.y = 0;
       } else {
         for (let s = 1; s <= steps; s++) {
-          const t = (from + dir * s + 40) % 40;
+          const t = base + (((from - base) + dir * s) % len + len) % len;
           const a = tok.group.position.clone(), b = tileWorld(t);
           if (onHop) onHop('hop');
           // slower, eased hop so the eye can follow each step
@@ -733,7 +772,7 @@ const B3D = (() => {
       // rebuild houses
       while (housesGroup.children.length) housesGroup.remove(housesGroup.children[0]);
       Object.keys(state.props).map(Number).forEach(i => {
-        const ps = state.props[i], t = TILES[i];
+        const ps = state.props[i], t = BOARD[i];
         if (!ps || t.type !== 'prop' || !ps.houses) return;
         const R = tileRect(i);
         // inner edge direction (toward board center)
