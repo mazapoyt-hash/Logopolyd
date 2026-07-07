@@ -75,9 +75,8 @@ const B3D = (() => {
 
   // ---------- board texture (offscreen 2D canvas) ----------
   function shortName(t) {
-    return t.name.replace(' Avenue', ' Ave').replace(' Railroad', ' RR').replace('Community Chest', 'КАЗНА')
-      .replace('Chance', 'ШАНС').replace('Income Tax', 'НАЛОГ').replace('Luxury Tax', 'НАЛОГ')
-      .replace('Jail / Visiting', 'ТЮРЬМА').replace('Free Parking', 'ПАРКОВКА').replace('Go To Jail', 'В ТЮРЬМУ');
+    // Labels are localized per viewer via i18n (tileName); wrap() upper-cases.
+    return tileName(t.name);
   }
   function wrap(ctx, text, maxW) {
     const words = text.toUpperCase().split(' '), lines = [];
@@ -323,17 +322,19 @@ const B3D = (() => {
 
   // Attach a cage when a token is jailed, and "break" it (bars fly up + fade)
   // when the token is freed. Guarded by tok.cage so repeated state syncs no-op.
-  function setTokenJail(pi, on) {
+  function setTokenJail(pi, on, instant = false) {
     const tok = tokens[pi];
     if (!tok) return;
     if (on && !tok.cage) {
       const cage = buildCage();
       tok.group.add(cage);
       tok.cage = cage;
+      if (instant) { cage.scale.y = 1; return; }   // reconnect/first render: snap
       cage.scale.y = 0.01;
       tween(320, k => { cage.scale.y = easeOut(k); });
     } else if (!on && tok.cage) {
       const cage = tok.cage; tok.cage = null;
+      if (instant) { tok.group.remove(cage); cage._mat.dispose(); return; }
       tween(460, k => {
         const e = easeOut(k);
         cage.position.y = e * 0.8;
@@ -740,9 +741,17 @@ const B3D = (() => {
           tokens[pi] = { group: g, colorIdx: p.color };
         }
         tokens[pi].group.visible = !p.bankrupt;
-        setTokenJail(pi, !!p.inJail && !p.bankrupt);
+        // Jail cage on/off is driven by the FX queue (see ui.js) so the bars
+        // appear only once the token has actually walked/jumped into jail —
+        // not the instant the dice roll updates state. Here we only clear a
+        // stale cage if a jailed player was just eliminated.
+        if (p.bankrupt && tokens[pi].cage) setTokenJail(pi, false, true);
       });
     },
+
+    // Show/break the jail cage. `instant` snaps without animation (first render
+    // / reconnect). Normally called from the FX queue after the move animation.
+    setJail(pi, on, instant = false) { setTokenJail(pi, on, instant); },
 
     // instant placement with per-tile grouping offsets
     snapTokens(disp, players) {
@@ -768,28 +777,6 @@ const B3D = (() => {
       // which used to make the hops play in-place and look like a teleport.
       tok.group.position.copy(tileWorld(from));
       cam.followPi = pi;
-      // Intro: smoothly fly the camera in and frame the token BEFORE it starts
-      // walking, so the move doesn't look jerky. During 'intro' the loop's
-      // follow recompute is skipped and cam.pos tracks the camera (no lerp
-      // fight). Because the follow target now keeps the same "north-up"
-      // orientation as the overview, a gentle straight glide (smootherstep)
-      // frames the token without cutting through the board or flipping the view.
-      {
-        const tgt = followTarget(tok.group.position);
-        const startP = camera.position.clone(), startL = curLook.clone();
-        const lift = 1.2;   // slight rise mid-glide so it arcs down onto the tile
-        cam.mode = 'intro';
-        await tween(950, k => {
-          const e = smoother(k);
-          camera.position.lerpVectors(startP, tgt.pos, e);
-          camera.position.y += Math.sin(e * Math.PI) * lift;
-          curLook.lerpVectors(startL, tgt.look, e);
-          cam.pos.copy(camera.position); cam.look.copy(curLook);
-        });
-        cam.mode = 'follow';
-        // brief beat so the framed shot reads before the token starts walking
-        await tween(320, () => {});
-      }
       // ring-aware stepping: outer ring = 40 tiles (base 0), inner = 24 (base 40)
       const base = from >= INNER_BASE ? INNER_BASE : 0;
       const len = from >= INNER_BASE ? INNER_COUNT : 40;
@@ -798,9 +785,26 @@ const B3D = (() => {
       // shortest path. Forward for dice rolls, backward only for "back N" cards.
       const dir = back ? -1 : 1;
       let steps = sameRing ? (dir === 1 ? (to - from + len) % len : (from - to + len) % len) : 0;
-      // Only a genuine "jump" (metro warp between rings) flies through the air.
-      // Every dice roll walks tile-by-tile within its ring.
-      if (jump || !sameRing || steps === 0) {
+      // A "jump" (jail teleport or metro warp) flies through the air; every dice
+      // roll walks tile-by-tile within its ring.
+      const isTeleport = jump || !sameRing || steps === 0;
+
+      if (isTeleport) {
+        // Teleports read best from a WIDE view: pull the camera out to the
+        // overview and watch the token fly across the board. Doing the walk's
+        // close intro-zoom here caused a jarring double-dive when landing on
+        // "Go To Jail" (walk to the tile, then teleport straight after).
+        {
+          const o = overviewFor(cam.flat);
+          const startP = camera.position.clone(), startL = curLook.clone();
+          cam.mode = 'intro';
+          await tween(520, k => {
+            const e = easeInOut(k);
+            camera.position.lerpVectors(startP, o.pos, e);
+            curLook.lerpVectors(startL, o.look, e);
+            cam.pos.copy(camera.position); cam.look.copy(curLook);
+          });
+        }
         const a = tok.group.position.clone(), b = tileWorld(to);
         if (onHop) onHop('fly');
         await tween(700, k => {
@@ -811,6 +815,28 @@ const B3D = (() => {
         });
         tok.group.rotation.y = 0;
       } else {
+        // Walk: smoothly fly the camera in and frame the token BEFORE it starts
+        // walking, so the move doesn't look jerky. During 'intro' the loop's
+        // follow recompute is skipped and cam.pos tracks the camera (no lerp
+        // fight). Because the follow target keeps the same "north-up"
+        // orientation as the overview, a gentle straight glide (smootherstep)
+        // frames the token without cutting through the board or flipping the view.
+        {
+          const tgt = followTarget(tok.group.position);
+          const startP = camera.position.clone(), startL = curLook.clone();
+          const lift = 1.2;   // slight rise mid-glide so it arcs down onto the tile
+          cam.mode = 'intro';
+          await tween(950, k => {
+            const e = smoother(k);
+            camera.position.lerpVectors(startP, tgt.pos, e);
+            camera.position.y += Math.sin(e * Math.PI) * lift;
+            curLook.lerpVectors(startL, tgt.look, e);
+            cam.pos.copy(camera.position); cam.look.copy(curLook);
+          });
+          cam.mode = 'follow';
+          // brief beat so the framed shot reads before the token starts walking
+          await tween(320, () => {});
+        }
         for (let s = 1; s <= steps; s++) {
           const t = base + (((from - base) + dir * s) % len + len) % len;
           const a = tok.group.position.clone(), b = tileWorld(t);
