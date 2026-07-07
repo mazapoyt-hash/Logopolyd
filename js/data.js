@@ -15,55 +15,57 @@ const PLAYER_COLORS = [
   { name: 'teal',   grad: ['#158f8f', '#1fc0a8'], solid: '#1aa89c' },
 ];
 
+// Property tiles are named after countries (Rento-style). Prices, rent and
+// color groups are unchanged from classic Monopoly — only the labels differ.
 const TILES = [
   { name: 'GO', type: 'go' },
-  { name: 'Mediterranean Avenue', type: 'prop', group: 'brown', price: 60, house: 50, rent: [2, 10, 30, 90, 160, 250] },
+  { name: 'Молдова', type: 'prop', group: 'brown', price: 60, house: 50, rent: [2, 10, 30, 90, 160, 250] },
   { name: 'Community Chest', type: 'chest' },
-  { name: 'Baltic Avenue', type: 'prop', group: 'brown', price: 60, house: 50, rent: [4, 20, 60, 180, 320, 450] },
+  { name: 'Грузия', type: 'prop', group: 'brown', price: 60, house: 50, rent: [4, 20, 60, 180, 320, 450] },
   { name: 'Income Tax', type: 'tax', amount: 200 },
-  { name: 'Reading Railroad', type: 'rail', price: 200 },
-  { name: 'Oriental Avenue', type: 'prop', group: 'lightblue', price: 100, house: 50, rent: [6, 30, 90, 270, 400, 550] },
+  { name: 'Северный вокзал', type: 'rail', price: 200 },
+  { name: 'Украина', type: 'prop', group: 'lightblue', price: 100, house: 50, rent: [6, 30, 90, 270, 400, 550] },
   { name: 'Chance', type: 'chance' },
-  { name: 'Vermont Avenue', type: 'prop', group: 'lightblue', price: 100, house: 50, rent: [6, 30, 90, 270, 400, 550] },
-  { name: 'Connecticut Avenue', type: 'prop', group: 'lightblue', price: 120, house: 50, rent: [8, 40, 100, 300, 450, 600] },
+  { name: 'Беларусь', type: 'prop', group: 'lightblue', price: 100, house: 50, rent: [6, 30, 90, 270, 400, 550] },
+  { name: 'Казахстан', type: 'prop', group: 'lightblue', price: 120, house: 50, rent: [8, 40, 100, 300, 450, 600] },
   { name: 'Jail / Visiting', type: 'jail' },
-  { name: 'St. Charles Place', type: 'prop', group: 'pink', price: 140, house: 100, rent: [10, 50, 150, 450, 625, 750] },
-  { name: 'Electric Company', type: 'util', price: 150 },
-  { name: 'States Avenue', type: 'prop', group: 'pink', price: 140, house: 100, rent: [10, 50, 150, 450, 625, 750] },
-  { name: 'Virginia Avenue', type: 'prop', group: 'pink', price: 160, house: 100, rent: [12, 60, 180, 500, 700, 900] },
-  { name: 'Pennsylvania Railroad', type: 'rail', price: 200 },
-  { name: 'St. James Place', type: 'prop', group: 'orange', price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950] },
+  { name: 'Польша', type: 'prop', group: 'pink', price: 140, house: 100, rent: [10, 50, 150, 450, 625, 750] },
+  { name: 'Электростанция', type: 'util', price: 150 },
+  { name: 'Чехия', type: 'prop', group: 'pink', price: 140, house: 100, rent: [10, 50, 150, 450, 625, 750] },
+  { name: 'Венгрия', type: 'prop', group: 'pink', price: 160, house: 100, rent: [12, 60, 180, 500, 700, 900] },
+  { name: 'Восточный вокзал', type: 'rail', price: 200 },
+  { name: 'Турция', type: 'prop', group: 'orange', price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950] },
   { name: 'Community Chest', type: 'chest' },
-  { name: 'Tennessee Avenue', type: 'prop', group: 'orange', price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950] },
-  { name: 'New York Avenue', type: 'prop', group: 'orange', price: 200, house: 100, rent: [16, 80, 220, 600, 800, 1000] },
+  { name: 'Греция', type: 'prop', group: 'orange', price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950] },
+  { name: 'Португалия', type: 'prop', group: 'orange', price: 200, house: 100, rent: [16, 80, 220, 600, 800, 1000] },
   { name: 'Free Parking', type: 'free' },
-  { name: 'Kentucky Avenue', type: 'prop', group: 'red', price: 220, house: 150, rent: [18, 90, 250, 700, 875, 1050] },
+  { name: 'Испания', type: 'prop', group: 'red', price: 220, house: 150, rent: [18, 90, 250, 700, 875, 1050] },
   { name: 'Chance', type: 'chance' },
-  { name: 'Indiana Avenue', type: 'prop', group: 'red', price: 220, house: 150, rent: [18, 90, 250, 700, 875, 1050] },
-  { name: 'Illinois Avenue', type: 'prop', group: 'red', price: 240, house: 150, rent: [20, 100, 300, 750, 925, 1100] },
-  { name: 'B. & O. Railroad', type: 'rail', price: 200 },
-  { name: 'Atlantic Avenue', type: 'prop', group: 'yellow', price: 260, house: 150, rent: [22, 110, 330, 800, 975, 1150] },
-  { name: 'Ventnor Avenue', type: 'prop', group: 'yellow', price: 260, house: 150, rent: [22, 110, 330, 800, 975, 1150] },
-  { name: 'Water Works', type: 'util', price: 150 },
-  { name: 'Marvin Gardens', type: 'prop', group: 'yellow', price: 280, house: 150, rent: [24, 120, 360, 850, 1025, 1200] },
+  { name: 'Италия', type: 'prop', group: 'red', price: 220, house: 150, rent: [18, 90, 250, 700, 875, 1050] },
+  { name: 'Нидерланды', type: 'prop', group: 'red', price: 240, house: 150, rent: [20, 100, 300, 750, 925, 1100] },
+  { name: 'Южный вокзал', type: 'rail', price: 200 },
+  { name: 'Швеция', type: 'prop', group: 'yellow', price: 260, house: 150, rent: [22, 110, 330, 800, 975, 1150] },
+  { name: 'Норвегия', type: 'prop', group: 'yellow', price: 260, house: 150, rent: [22, 110, 330, 800, 975, 1150] },
+  { name: 'Водоканал', type: 'util', price: 150 },
+  { name: 'Финляндия', type: 'prop', group: 'yellow', price: 280, house: 150, rent: [24, 120, 360, 850, 1025, 1200] },
   { name: 'Go To Jail', type: 'gotojail' },
-  { name: 'Pacific Avenue', type: 'prop', group: 'green', price: 300, house: 200, rent: [26, 130, 390, 900, 1100, 1275] },
-  { name: 'North Carolina Avenue', type: 'prop', group: 'green', price: 300, house: 200, rent: [26, 130, 390, 900, 1100, 1275] },
+  { name: 'Франция', type: 'prop', group: 'green', price: 300, house: 200, rent: [26, 130, 390, 900, 1100, 1275] },
+  { name: 'Германия', type: 'prop', group: 'green', price: 300, house: 200, rent: [26, 130, 390, 900, 1100, 1275] },
   { name: 'Community Chest', type: 'chest' },
-  { name: 'Pennsylvania Avenue', type: 'prop', group: 'green', price: 320, house: 200, rent: [28, 150, 450, 1000, 1200, 1400] },
-  { name: 'Short Line', type: 'rail', price: 200 },
+  { name: 'Австрия', type: 'prop', group: 'green', price: 320, house: 200, rent: [28, 150, 450, 1000, 1200, 1400] },
+  { name: 'Западный вокзал', type: 'rail', price: 200 },
   { name: 'Chance', type: 'chance' },
-  { name: 'Park Place', type: 'prop', group: 'darkblue', price: 350, house: 200, rent: [35, 175, 500, 1100, 1300, 1500] },
+  { name: 'Япония', type: 'prop', group: 'darkblue', price: 350, house: 200, rent: [35, 175, 500, 1100, 1300, 1500] },
   { name: 'Luxury Tax', type: 'tax', amount: 100 },
-  { name: 'Boardwalk', type: 'prop', group: 'darkblue', price: 400, house: 200, rent: [50, 200, 600, 1400, 1700, 2000] },
+  { name: 'США', type: 'prop', group: 'darkblue', price: 400, house: 200, rent: [50, 200, 600, 1400, 1700, 2000] },
 ];
 
 const CHANCE_CARDS = [
-  { text: 'Отправляйтесь на Boardwalk', act: 'moveTo', v: 39 },
+  { text: 'Отправляйтесь в США', act: 'moveTo', v: 39 },
   { text: 'Отправляйтесь на GO. Получите ₩200', act: 'moveTo', v: 0 },
-  { text: 'Отправляйтесь на Illinois Avenue. Если пройдёте GO — получите ₩200', act: 'moveTo', v: 24 },
-  { text: 'Отправляйтесь на St. Charles Place. Если пройдёте GO — получите ₩200', act: 'moveTo', v: 11 },
-  { text: 'Отправляйтесь на ближайшую железную дорогу и заплатите двойную аренду, если она занята', act: 'nearRail' },
+  { text: 'Отправляйтесь в Нидерланды. Если пройдёте GO — получите ₩200', act: 'moveTo', v: 24 },
+  { text: 'Отправляйтесь в Польшу. Если пройдёте GO — получите ₩200', act: 'moveTo', v: 11 },
+  { text: 'Отправляйтесь на ближайший вокзал и заплатите двойную аренду, если он занят', act: 'nearRail' },
   { text: 'Отправляйтесь на ближайшее коммунальное предприятие. Если оно занято — заплатите 10× бросок кубиков', act: 'nearUtil' },
   { text: 'Банк выплачивает вам дивиденды ₩50', act: 'money', v: 50 },
   { text: 'Освобождение из тюрьмы. Карту можно сохранить', act: 'jailcard' },
@@ -71,7 +73,7 @@ const CHANCE_CARDS = [
   { text: 'Отправляйтесь в тюрьму. Не проходите GO, не получаете ₩200', act: 'jail' },
   { text: 'Ремонт недвижимости: заплатите ₩25 за каждый дом и ₩100 за каждый отель', act: 'repairs', h: 25, ho: 100 },
   { text: 'Штраф за превышение скорости ₩15', act: 'money', v: -15 },
-  { text: 'Отправляйтесь на Reading Railroad. Если пройдёте GO — получите ₩200', act: 'moveTo', v: 5 },
+  { text: 'Отправляйтесь на Северный вокзал. Если пройдёте GO — получите ₩200', act: 'moveTo', v: 5 },
   { text: 'Вас избрали председателем правления. Заплатите каждому игроку ₩50', act: 'payEach', v: 50 },
   { text: 'Ваш кредит на строительство погашен. Получите ₩150', act: 'money', v: 150 },
 ];
@@ -121,35 +123,43 @@ const BOARD_THEMES = {
 // station teleports you into this inner ring; you leave again by landing on an
 // inner metro tile, which returns you to the station you came from.
 //
-// 24 tiles total, absolute board indices 40..63:
+// 24 tiles total, absolute board indices 40..63. Like Rento's inner circle it
+// mixes country properties with special squares — not only streets:
 //   - metro tiles at relative 0, 6, 12, 18 (the ring "corners" = exits)
-//   - four color groups of 5 buyable properties, one per side.
+//   - four color groups of buyable countries (4 per side)
+//   - Chance / Community Chest / Tax squares sprinkled between them.
 const OUTER_STATIONS = [5, 15, 25, 35];   // outer rail tiles that lead inside
 const INNER_BASE = 40;                     // absolute index of inner tile 0
 const INNER_COUNT = 24;
 
 const INNER_TILES = (() => {
-  const groups = [
+  // Per-side blueprint: 6 tiles each (index 0 is always the metro corner).
+  // 's' = special square, otherwise the k-th country of that side's group.
+  const sides = [
     { g: 'i-cyan',  price: 120, house: 60,  rent: [8, 40, 100, 300, 450, 600],
-      names: ['Northgate', 'Junction', 'Eastport', 'Midtown', 'Riverside'] },
+      names: ['Мексика', 'Бразилия', 'Аргентина', 'Чили'],
+      plan: ['metro', 'prop', 'prop', 'chance', 'prop', 'prop'] },
     { g: 'i-lime',  price: 180, house: 100, rent: [14, 70, 200, 550, 750, 950],
-      names: ['Harborview', 'Old Town', 'Green Park', 'Sunset Blvd', 'Kings Cross'] },
+      names: ['Египет', 'Марокко', 'Кения', 'ЮАР'],
+      plan: ['metro', 'prop', 'prop', 'chest', 'prop', 'prop'] },
     { g: 'i-amber', price: 240, house: 150, rent: [20, 100, 300, 750, 925, 1100],
-      names: ['Union Square', 'Grand Central', 'Times Square', 'Broadway', 'Liberty'] },
+      names: ['Индия', 'Таиланд', 'Вьетнам', 'Индонезия'],
+      plan: ['metro', 'prop', 'prop', 'tax', 'prop', 'prop'] },
     { g: 'i-rose',  price: 320, house: 200, rent: [28, 150, 450, 1000, 1200, 1400],
-      names: ['Downtown', 'Uptown', 'Financial', 'Highline', 'Central Park'] },
+      names: ['Китай', 'Корея', 'Сингапур', 'ОАЭ'],
+      plan: ['metro', 'prop', 'prop', 'chance', 'prop', 'prop'] },
   ];
   const tiles = [];
-  for (let k = 0; k < INNER_COUNT; k++) {
-    const side = Math.floor(k / 6);   // 0..3
-    const j = k % 6;                  // 0 = corner (metro), 1..5 = properties
-    if (j === 0) {
-      tiles.push({ name: 'Metro', type: 'metro' });
-    } else {
-      const grp = groups[side];
-      tiles.push({
-        name: grp.names[j - 1], type: 'prop', group: grp.g,
-        price: grp.price, house: grp.house, rent: grp.rent.slice(),
+  for (const side of sides) {
+    let pi = 0;   // country index for this side
+    for (const kind of side.plan) {
+      if (kind === 'metro') tiles.push({ name: 'Metro', type: 'metro' });
+      else if (kind === 'chance') tiles.push({ name: 'Chance', type: 'chance' });
+      else if (kind === 'chest') tiles.push({ name: 'Community Chest', type: 'chest' });
+      else if (kind === 'tax') tiles.push({ name: 'Налог', type: 'tax', amount: 150 });
+      else tiles.push({
+        name: side.names[pi++], type: 'prop', group: side.g,
+        price: side.price, house: side.house, rent: side.rent.slice(),
       });
     }
   }
