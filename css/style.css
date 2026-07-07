@@ -567,6 +567,31 @@ body.in-telegram .topbar { padding-top: calc(8px + max(var(--tg-top), var(--safe
   backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
 }
 .turn-hint:empty { display: none; }
+
+/* Big 2D dice read-out (the 3D dice on the board are hard to read) */
+.dice-badge {
+  pointer-events: none;
+  display: flex; align-items: center; gap: 6px;
+  background: rgba(14, 12, 10, 0.82);
+  border: 1.5px solid rgba(255, 217, 101, 0.45); border-radius: 14px;
+  padding: 7px 14px; margin-bottom: 2px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.dice-badge .db-die {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 30px; height: 30px; border-radius: 7px;
+  background: linear-gradient(155deg, #fbf6e6, #ded4b6); color: #23201a;
+  font-weight: 800; font-size: 18px; line-height: 1;
+  box-shadow: inset 0 -2px 3px rgba(0,0,0,.25), inset 0 2px 2px rgba(255,255,255,.7);
+}
+.dice-badge .db-plus, .dice-badge .db-eq { color: #cfc7b0; font-weight: 700; font-size: 16px; }
+.dice-badge .db-sum { color: #ffd965; font-weight: 800; font-size: 22px; text-shadow: 0 1px 4px rgba(0,0,0,.6); }
+.dice-badge.pop { animation: dicebadgepop .35s cubic-bezier(.34, 1.56, .64, 1); }
+@keyframes dicebadgepop {
+  0% { transform: scale(.6); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
 .turn-timer { margin-top: 4px; font-size: clamp(13px, 2vmin, 18px); font-weight: 800; color: #ffd965; }
 .turn-timer.timer-warn { color: #ff7d6b; animation: timerpulse .9s ease-in-out infinite; }
 @keyframes timerpulse { 0%,100% { opacity: .7; } 50% { opacity: 1; } }

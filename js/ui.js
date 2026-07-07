@@ -73,6 +73,21 @@ function setDice(vals) {
   B3D.setDice(vals);
 }
 
+// Big, unmissable 2D read-out of the last roll (the 3D dice are small on-board).
+function showDiceBadge(vals) {
+  const el = $('#dice-badge');
+  if (!el || !vals || !vals.length) return;
+  const sum = vals.reduce((a, b) => a + b, 0);
+  const pips = vals.map(v => `<span class="db-die">${v}</span>`).join('<span class="db-plus">+</span>');
+  el.innerHTML = `${pips}<span class="db-eq">=</span><span class="db-sum">${sum}</span>`;
+  el.style.display = 'flex';
+  el.classList.remove('pop'); void el.offsetWidth; el.classList.add('pop');
+}
+function hideDiceBadge() {
+  const el = $('#dice-badge');
+  if (el) el.style.display = 'none';
+}
+
 function renderFx(s) {
   ensureTokens(s);
   if (!fxq.disp) {
@@ -114,7 +129,13 @@ function renderFx(s) {
   if (evs.length) fxq.lastSeq = evs[evs.length - 1].seq;
   evs.forEach(ev => {
     if (ev.kind === 'dice') {
-      queueFx(async () => { snd.dice(); await B3D.rollDice(ev.d); await sleep(150); });
+      queueFx(async () => {
+        hideDiceBadge();
+        snd.dice();
+        await B3D.rollDice(ev.d);
+        showDiceBadge(ev.d);
+        await sleep(150);
+      });
     } else if (ev.kind === 'move') {
       queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump));
     } else if (ev.kind === 'card') {
@@ -134,7 +155,7 @@ function renderFx(s) {
 
   if (fxBusy === 0) {
     // idle: keep display state in sync (resize, missed snapshots)
-    if (!s.dice) setDice(null);
+    if (!s.dice) { setDice(null); hideDiceBadge(); }
     s.players.forEach((p, pi) => { if (!p.bankrupt) fxq.disp[pi] = p.pos; });
     placeAllTokens(s);
   }
