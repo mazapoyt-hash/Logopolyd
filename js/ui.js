@@ -117,7 +117,9 @@ function renderFx(s) {
       queueFx(async () => {
         snd.dice();
         await B3D.rollDice(ev.d);
-        await sleep(150);
+        // Hold on the settled dice so the player can actually read the roll
+        // before the camera flies in to follow the token.
+        await sleep(1150);
       });
     } else if (ev.kind === 'move') {
       queueFx(() => walkToken(s, ev.pi, ev.from, ev.to, ev.jump, ev.back));
