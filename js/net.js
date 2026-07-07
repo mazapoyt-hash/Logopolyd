@@ -113,7 +113,7 @@ let heartbeatTimer = null;
 function startHeartbeat() {
   stopHeartbeat();
   heartbeatTimer = setInterval(() => {
-    if (!NET.isHost || !NET.client) return;
+    if (!NET.isHost || (!NET.client && !NET.solo)) return;
     // turn timer: if the active player's deadline passed, auto-resolve the turn
     if (NET.state && NET.state.turnDeadline && NET.state.winner === null
         && Date.now() > NET.state.turnDeadline) {
@@ -160,6 +160,10 @@ function hostGame(name, cb, brokerIdx = 0) {
 function hostResume(session, cb) {
   const saved = loadHostState();
   if (!saved || saved.roomCode !== session.roomCode) { clearSession(); cb(new Error('no saved state')); return; }
+  // never resume into a finished game — that traps the player in the victory screen
+  if (saved.state && saved.state.winner !== null && saved.state.winner !== undefined) {
+    clearSession(); cb(new Error('game finished')); return;
+  }
   const rc = session.roomCode;
   const broker = BROKERS.find(b => b.key === rc[rc.length - 1]) || BROKERS[0];
   NET.isHost = true;
@@ -303,12 +307,16 @@ function soloGame(name, botCount) {
   saveSession();
   hostStartGame();
   startBotLoop();
+  startHeartbeat(); // drives the turn timer in solo too
 }
 
 // Resume a solo game after a page refresh (no network involved).
 function soloResume(session, cb) {
   const saved = loadHostState();
   if (!saved || !saved.state) { clearSession(); cb(new Error('no saved solo state')); return; }
+  if (saved.state.winner !== null && saved.state.winner !== undefined) {
+    clearSession(); cb(new Error('game finished')); return;
+  }
   NET.isHost = true;
   NET.solo = true;
   NET.myName = session.name;
@@ -317,6 +325,7 @@ function soloResume(session, cb) {
   NET.state = saved.state;
   NET.lobbyPlayers = saved.lobbyPlayers || [];
   startBotLoop();
+  startHeartbeat();
   cb(null);
   NET.onUpdate();
 }
@@ -424,6 +433,7 @@ function tryResume(onDone) {
 function leaveRoom() {
   clearSession();
   stopHeartbeat();
+  stopBotLoop();
   if (NET.client) {
     if (NET.isHost) hostBroadcast({ type: 'hostleave' }, 1);
     else pub(topicHost(NET.roomCode), { type: 'leave', from: NET.myPeerId }, 1);

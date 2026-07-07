@@ -288,18 +288,18 @@ function renderCenter() {
   }
 
   let hint = '';
-  if (s.winner !== null) hint = `🏆 Победитель: ${s.players[s.winner].name}!`;
-  else if (myTurn) hint = s.rolled ? 'Заверши ход или управляй имуществом' : (p.inJail ? 'Ты в тюрьме: плати, используй карту или бросай на дубль' : 'Твой ход!');
-  else hint = `Ходит ${esc(p.name)}…`;
+  if (s.winner !== null) hint = `🏆 ${t('winner')}: ${esc(s.players[s.winner].name)}!`;
+  else if (myTurn) hint = s.rolled ? t('finishOrManage') : (p.inJail ? t('jailHint') : t('yourTurn'));
+  else hint = `${t('turnOf')} ${esc(p.name)}…`;
   // turn timer countdown
   if (s.winner === null && s.turnDeadline && s.settings && s.settings.turnTimer > 0) {
     const left = Math.max(0, Math.ceil((s.turnDeadline - Date.now()) / 1000));
     const warn = left <= 10 ? ' timer-warn' : '';
-    hint += `<div class="turn-timer${warn}">⏱ ${left}с</div>`;
+    hint += `<div class="turn-timer${warn}">⏱ ${left}s</div>`;
   }
   // free-parking pot indicator
   if (s.settings && s.settings.freeParkingPot && s.parkingPot > 0) {
-    hint += `<div class="parking-pot">🅿️ Банк стоянки: ${CUR}${s.parkingPot}</div>`;
+    hint += `<div class="parking-pot">🅿️ ${t('parkingPot')}: ${CUR}${s.parkingPot}</div>`;
   }
   $('#turn-hint').innerHTML = hint;
 
@@ -341,7 +341,7 @@ function statsHTML(s) {
   }).sort((a, b) => b.total - a.total);
   return `<div class="stats-table">
     <div class="stats-row stats-head">
-      <span>Игрок</span><span>Итог</span><span>Клеток</span><span>Аренда +</span><span>Аренда −</span><span>Кругов</span>
+      <span>${t('stPlayer')}</span><span>${t('stTotal')}</span><span>${t('stTiles')}</span><span>${t('stRentIn')}</span><span>${t('stRentOut')}</span><span>${t('stCircles')}</span>
     </div>
     ${rows.map(r => `<div class="stats-row${r.bankrupt ? ' stats-out' : ''}">
       <span><i class="stats-dot" style="background:${PLAYER_COLORS[r.color].solid}"></i>${esc(r.name)}</span>
@@ -364,10 +364,10 @@ function renderModals() {
     const w = s.players[s.winner];
     confettiBurst();
     clearSession(); // game is over: never auto-resume into a finished game
-    openModal(`<div class="modal-title">🏆 ПОБЕДА!</div>
-      <div class="card-body big">${esc(w.name)} — монополист!</div>
+    openModal(`<div class="modal-title">🏆 ${t('victory')}</div>
+      <div class="card-body big">${esc(w.name)} — ${t('monopolist')}</div>
       ${statsHTML(s)}
-      <button class="btn gold" onclick="leaveRoom()">Новая игра</button>`);
+      <button class="btn gold" onclick="leaveRoom()">${t('newGame')}</button>`);
     return;
   }
 
@@ -559,6 +559,24 @@ function flashMoney(pi, delta) {
   setTimeout(() => el.remove(), 1700);
 }
 
+// floating emoji reaction above a player's plaque (same fx layer as money)
+const REACT_ALLOWED = ['😂', '😡', '😱', '👍', '💰'];
+function showReaction(pi, emoji) {
+  if (!REACT_ALLOWED.includes(emoji)) return;
+  const plaque = document.getElementById('plaque-' + pi);
+  const layer = $('#money-fx');
+  if (!plaque || !layer) return;
+  const r = plaque.getBoundingClientRect();
+  const el = document.createElement('div');
+  el.className = 'react-float';
+  el.textContent = emoji;
+  el.style.left = (r.left + r.width / 2) + 'px';
+  el.style.top = (r.bottom - 2) + 'px';
+  layer.appendChild(el);
+  TG.haptic('light');
+  setTimeout(() => el.remove(), 2100);
+}
+
 function showTileInfo(i) {
   const t = TILES[i];
   if (!NET.state || !NET.state.props[i]) return;
@@ -672,6 +690,26 @@ document.addEventListener('DOMContentLoaded', () => {
   buildBoard();
   NET.onUpdate = render;
   NET.onChat = addChat;
+  NET.onReact = showReaction;
+
+  // ---- language selector (applyI18n also highlights the active button) ----
+  applyI18n();
+  $('#lang-row').addEventListener('click', e => {
+    const b = e.target.closest('.lang-btn');
+    if (!b) return;
+    setLang(b.dataset.lang);
+  });
+
+  // ---- emoji quick reactions (throttled to avoid spam) ----
+  let lastReact = 0;
+  $('#react-bar').addEventListener('click', e => {
+    const b = e.target.closest('.react-btn');
+    if (!b) return;
+    const now = Date.now();
+    if (now - lastReact < 1500) return;
+    lastReact = now;
+    sendReaction(b.dataset.e);
+  });
 
   // 1s ticker so the turn-timer countdown stays live between state updates
   setInterval(() => {
@@ -765,13 +803,19 @@ document.addEventListener('DOMContentLoaded', () => {
     autoJoinInvite(inviteCode); // fresh open from an invite link
   }
 
-  // "Создать комнату" opens the settings screen first
-  $('#btn-create').addEventListener('click', () => {
+  // "Создать комнату" opens the settings screen first.
+  // soloMode controls whether the confirm button starts a network room or a bot game.
+  let soloMode = false;
+  function openSettings(solo) {
     const name = $('#inp-name').value.trim();
-    if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
+    if (!name) { $('#lobby-error').textContent = t('enterName'); return; }
+    soloMode = solo;
+    $('#set-bots-group').style.display = solo ? 'block' : 'none';
     $('#lobby-form').style.display = 'none';
     $('#settings-screen').style.display = 'block';
-  });
+  }
+  $('#btn-create').addEventListener('click', () => openSettings(false));
+  $('#btn-solo').addEventListener('click', () => openSettings(true));
   $('#btn-settings-back').addEventListener('click', () => {
     $('#settings-screen').style.display = 'none';
     $('#lobby-form').style.display = 'block';
@@ -806,15 +850,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
   $('#btn-create-confirm').addEventListener('click', () => {
     const name = $('#inp-name').value.trim();
-    if (!name) { $('#lobby-error').textContent = 'Введи имя'; return; }
+    if (!name) { $('#lobby-error').textContent = t('enterName'); return; }
     NET.settings = collectSettings();
+    if (soloMode) {
+      const on = $('#set-bots').querySelector('.seg-btn.is-on');
+      const botCount = parseInt(on ? on.dataset.v : '1', 10) || 1;
+      $('#settings-screen').style.display = 'none';
+      soloGame(name, botCount);
+      render();
+      return;
+    }
     $('#btn-create-confirm').disabled = true;
     hostGame(name, (err) => {
       if (err) {
         $('#btn-create-confirm').disabled = false;
         $('#settings-screen').style.display = 'none';
         $('#lobby-form').style.display = 'block';
-        $('#lobby-error').textContent = err.message || 'Ошибка соединения';
+        $('#lobby-error').textContent = err.message || t('connErr');
         return;
       }
       $('#settings-screen').style.display = 'none';
