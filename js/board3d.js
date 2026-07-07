@@ -30,6 +30,13 @@ const B3D = (() => {
   const anims = [];           // active tweens
   const cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), mode: 'overview', followPi: -1, flat: false };
   let curLook = new THREE.Vector3(0, 0, 0);
+  // Smoothed anchor the follow camera tracks. The token walks in discrete
+  // stop/start hops; feeding its exact position to the camera each frame made
+  // the view tremble on every step. We low-pass the tracked point here so the
+  // camera glides continuously regardless of the token's stepped micro-motion.
+  const followAnchor = new THREE.Vector3();
+  let followAnchorSet = false;
+  let lastFrame = 0;
 
   // ---------- layout helpers ----------
   function gridPos(i) {
@@ -588,20 +595,36 @@ const B3D = (() => {
   function loop() {
     requestAnimationFrame(loop);
     const now = performance.now();
+    // Frame-time in seconds, clamped so a stall (tab switch) can't teleport the
+    // camera. Used for frame-rate-independent smoothing below.
+    const dt = lastFrame ? Math.min(0.05, (now - lastFrame) / 1000) : 1 / 60;
+    lastFrame = now;
     for (let i = anims.length - 1; i >= 0; i--) {
       const a = anims[i];
       const k = Math.min(1, (now - a.t0) / a.dur);
       a.fn(k);
       if (k >= 1) { anims.splice(i, 1); a.res(); }
     }
-  // camera follow: glide in close and orbit around the board with the token,
-  // always looking at it — the cinematic follow the game had originally.
-  if (cam.mode === 'follow' && tokens[cam.followPi]) {
-    const t = followTarget(tokens[cam.followPi].group.position);
-    cam.pos.copy(t.pos); cam.look.copy(t.look);
-  }
-  camera.position.lerp(cam.pos, 0.06);
-  curLook.lerp(cam.look, 0.09);
+    // camera follow: glide close and pan with the token, always looking at it.
+    if (cam.mode === 'follow' && tokens[cam.followPi]) {
+      const tp = tokens[cam.followPi].group.position;
+      // Low-pass the tracked point (only x/z — the token bobs in y as it hops)
+      // so per-step start/stop doesn't reach the camera. tau ~0.13s.
+      if (!followAnchorSet) { followAnchor.set(tp.x, 0, tp.z); followAnchorSet = true; }
+      const aA = 1 - Math.exp(-dt / 0.13);
+      followAnchor.x += (tp.x - followAnchor.x) * aA;
+      followAnchor.z += (tp.z - followAnchor.z) * aA;
+      const t = followTarget(followAnchor);
+      cam.pos.copy(t.pos); cam.look.copy(t.look);
+    } else {
+      followAnchorSet = false;
+    }
+    // Frame-rate-independent damping with a SINGLE time constant for both
+    // position and look-at, so they move in lockstep (mismatched rates were
+    // causing a subtle rotational wobble). tau ~0.22s = smooth, cinematic glide.
+    const aCam = 1 - Math.exp(-dt / 0.22);
+    camera.position.lerp(cam.pos, aCam);
+    curLook.lerp(cam.look, aCam);
     camera.lookAt(curLook);
     renderer.render(scene, camera);
   }
