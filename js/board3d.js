@@ -804,6 +804,7 @@ const B3D = (() => {
       // shortest path. Forward for dice rolls, backward only for "back N" cards.
       const dir = back ? -1 : 1;
       let steps = sameRing ? (dir === 1 ? (to - from + len) % len : (from - to + len) % len) : 0;
+      try { const _l = JSON.parse(localStorage.getItem('v0mv') || '[]'); _l.push({ from, to, back: !!back, jump: !!jump, sameRing, base, len, dir, steps }); localStorage.setItem('v0mv', JSON.stringify(_l.slice(-40))); } catch (e) {}
       // Only a genuine "jump" (metro warp between rings) flies through the air.
       // Every dice roll walks tile-by-tile within its ring.
       if (jump || !sameRing || steps === 0) {
