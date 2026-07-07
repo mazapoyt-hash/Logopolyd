@@ -80,8 +80,11 @@ function renderFx(s) {
     fxq.disp = s.players.map(p => p.pos);
     fxq.money = s.players.map(p => p.money);
     fxq.dispMoney = s.players.map(p => p.money);
+    fxq.jail = s.players.map(p => !!p.inJail && !p.bankrupt);
     fxq.lastSeq = s.evSeq || 0;
     placeAllTokens(s);
+    // snap cages for anyone already jailed (e.g. reconnect mid-game)
+    s.players.forEach((p, i) => { if (fxq.jail[i]) B3D.setJail(i, true, true); });
     setDice(s.dice);
     return;
   }
@@ -174,10 +177,11 @@ function showCardFx(card0) {
   const fx = $('#card-fx'), card = $('#fx-card'), inner = $('#fx-inner');
   const back = $('#fx-back'), front = $('#fx-front');
   back.className = 'fx-face fx-back ' + cls;
-  back.innerHTML = `<div class="fx-big">${isChance ? '❓' : '📦'}</div><div>${card0.deck}</div>`;
-  front.innerHTML = `<div class="fx-front-head ${cls}">${isChance ? '❓' : '📦'} ${card0.deck}</div>
-    <div class="fx-front-body">${esc(card0.text)}</div>
-    <div class="fx-front-foot"><div class="fx-who">Карта для: ${esc(card0.player)}</div><span id="fx-ok"></span></div>`;
+  const deckLbl = deckName(card0.deck);
+  back.innerHTML = `<div class="fx-big">${isChance ? '❓' : '📦'}</div><div>${deckLbl}</div>`;
+  front.innerHTML = `<div class="fx-front-head ${cls}">${isChance ? '❓' : '📦'} ${deckLbl}</div>
+    <div class="fx-front-body">${esc(cardText(card0.text))}</div>
+    <div class="fx-front-foot"><div class="fx-who">${t('cardFor')}: ${esc(card0.player)}</div><span id="fx-ok"></span></div>`;
   if (NET.state) updateCardFxButton(NET.state);
   snd.card();
   // start small at the deck's projected on-screen position, card back up
@@ -437,7 +441,7 @@ function renderModals() {
     const sum = side => {
       const parts = [];
       if (side.money) parts.push(`${CUR}${side.money}`);
-      side.props.forEach(i => parts.push(esc(BOARD[i].name)));
+      side.props.forEach(i => parts.push(esc(tileName(BOARD[i].name))));
       return parts.length ? parts.join(', ') : '—';
     };
     const body = `<div class="modal-title">🤝 Обмен</div>
@@ -499,7 +503,7 @@ function deedHTML(i) {
     rows = `<tr><td>1 предприятие</td><td>4 × кубики</td></tr><tr><td>2 предприятия</td><td>10 × кубики</td></tr>`;
   }
   const barColor = t.type === 'prop' ? GROUP_COLORS[t.group] : '#444';
-  return `<div class="deed-head" style="background:${barColor}">${esc(t.name)}</div>
+  return `<div class="deed-head" style="background:${barColor}">${esc(tileName(t.name))}</div>
     <table class="deed-table">${rows}<tr><td>Залог</td><td>${CUR}${Math.floor(t.price / 2)}</td></tr></table>`;
 }
 
@@ -518,13 +522,14 @@ function showPlayerHoldings(pi) {
   const p = s.players[pi];
   const owned = Object.keys(s.props).map(Number).filter(i => s.props[i].owner === pi);
   const worth = owned.reduce((a, i) => a + BOARD[i].price, 0);
+  const pledgeLbl = t('pledge');   // capture before `t` is shadowed by the tile below
   const rows = owned.length ? owned.map(i => {
     const t = BOARD[i], ps = s.props[i];
     const bar = t.type === 'prop' ? GROUP_COLORS[t.group] : '#666';
-    const extra = ps.mortgaged ? ' <span class="hold-mort">залог</span>'
+    const extra = ps.mortgaged ? ` <span class="hold-mort">${pledgeLbl}</span>`
       : ps.houses ? ' ' + (ps.houses === 5 ? '🏨' : '🏡'.repeat(ps.houses)) : '';
     return `<div class="mng-row"><span class="mng-dot" style="background:${bar}"></span>
-      <span class="mng-name">${esc(t.name)}${extra}</span>
+      <span class="mng-name">${esc(tileName(t.name))}${extra}</span>
       <span class="hold-val">${CUR}${t.price}</span></div>`;
   }).join('') : '<div class="wait-note">Пока нет участков</div>';
   const col = PLAYER_COLORS[p.color];
@@ -606,7 +611,7 @@ function openManage(kind) {
     if (!ok) return;
     const bar = t.type === 'prop' ? GROUP_COLORS[t.group] : '#666';
     rows.push(`<div class="mng-row"><span class="mng-dot" style="background:${bar}"></span>
-      <span class="mng-name">${esc(t.name)}${ps.houses ? ' ' + (ps.houses === 5 ? '🏨' : '🏡'.repeat(ps.houses)) : ''}</span>
+      <span class="mng-name">${esc(tileName(t.name))}${ps.houses ? ' ' + (ps.houses === 5 ? '🏨' : '🏡'.repeat(ps.houses)) : ''}</span>
       <button class="btn small" onclick="sendAction({type:'${kind === 'build' ? 'build' : kind}',tile:${i}});setTimeout(()=>openManage('${kind}'),120)">${label}</button></div>`);
   });
   openModal(`<div class="modal-title">${titles[kind]}</div>
@@ -624,7 +629,7 @@ function openTrade() {
   const propList = (owner, cls) => Object.keys(s.props).map(Number)
     .filter(i => s.props[i].owner === owner && s.props[i].houses === 0)
     .map(i => `<label class="tr-prop"><input type="checkbox" class="${cls}" value="${i}">
-      <span class="mng-dot" style="background:${BOARD[i].type === 'prop' ? GROUP_COLORS[BOARD[i].group] : '#666'}"></span>${esc(BOARD[i].name)}${s.props[i].mortgaged ? ' (залог)' : ''}</label>`).join('') || '<div class="wait-note">Нет свободных участков</div>';
+      <span class="mng-dot" style="background:${BOARD[i].type === 'prop' ? GROUP_COLORS[BOARD[i].group] : '#666'}"></span>${esc(tileName(BOARD[i].name))}${s.props[i].mortgaged ? ` (${t('pledge')})` : ''}</label>`).join('') || `<div class="wait-note">${t('noFreePlots')}</div>`;
 
   const renderFor = to => {
     openModal(`<div class="modal-title">🤝 Предложить обмен</div>
