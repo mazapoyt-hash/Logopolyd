@@ -560,11 +560,16 @@ const B3D = (() => {
     cam.pos.copy(o.pos); cam.look.copy(o.look);
   }
   // Close follow framing for a token at world position `tp`.
+  // The camera keeps a CONSTANT orientation (elevated, offset toward +Z — the
+  // same "north-up" view as the overview) and simply pans to keep the token
+  // centered. Previously it orbited to the token's OUTWARD side (looking toward
+  // center), so opposite edges of the board faced opposite ways and the board
+  // effectively flipped 180° between turns — a consistent forward walk then
+  // looked like it alternated clockwise / counter-clockwise. A fixed offset
+  // makes every walk read the same on-screen direction.
   function followTarget(tp) {
-    const dir = new THREE.Vector2(tp.x, tp.z);
-    if (dir.lengthSq() < 0.01) dir.set(0, 1); else dir.normalize();
     return {
-      pos: new THREE.Vector3(tp.x + dir.x * 3.6, TOP + 4.4, tp.z + dir.y * 3.6),
+      pos: new THREE.Vector3(tp.x, TOP + 4.4, tp.z + 3.6),
       look: new THREE.Vector3(tp.x, TOP + 0.2, tp.z),
     };
   }
@@ -765,30 +770,19 @@ const B3D = (() => {
       cam.followPi = pi;
       // Intro: smoothly fly the camera in and frame the token BEFORE it starts
       // walking, so the move doesn't look jerky. During 'intro' the loop's
-      // follow recompute is skipped and cam.pos tracks the camera (no lerp fight).
-      // The camera sweeps AROUND the board on an arc (interpolating angle +
-      // radius around the center, with a vertical lift) instead of a straight
-      // line — a straight lerp would cut through the board and snap over the top
-      // when the token sits on the far side.
+      // follow recompute is skipped and cam.pos tracks the camera (no lerp
+      // fight). Because the follow target now keeps the same "north-up"
+      // orientation as the overview, a gentle straight glide (smootherstep)
+      // frames the token without cutting through the board or flipping the view.
       {
         const tgt = followTarget(tok.group.position);
         const startP = camera.position.clone(), startL = curLook.clone();
-        // polar coords around board center (0,0)
-        const a0 = Math.atan2(startP.z, startP.x);
-        const a1 = Math.atan2(tgt.pos.z, tgt.pos.x);
-        let da = a1 - a0;
-        while (da > Math.PI) da -= 2 * Math.PI;
-        while (da < -Math.PI) da += 2 * Math.PI;
-        const r0 = Math.hypot(startP.x, startP.z);
-        const r1 = Math.hypot(tgt.pos.x, tgt.pos.z);
-        // extra lift scales with how far the camera has to swing around
-        const lift = 1.5 + Math.abs(da) / Math.PI * 3.5;
+        const lift = 1.2;   // slight rise mid-glide so it arcs down onto the tile
         cam.mode = 'intro';
         await tween(950, k => {
           const e = smoother(k);
-          const ang = a0 + da * e, rad = r0 + (r1 - r0) * e;
-          const y = startP.y + (tgt.pos.y - startP.y) * e + Math.sin(e * Math.PI) * lift;
-          camera.position.set(Math.cos(ang) * rad, y, Math.sin(ang) * rad);
+          camera.position.lerpVectors(startP, tgt.pos, e);
+          camera.position.y += Math.sin(e * Math.PI) * lift;
           curLook.lerpVectors(startL, tgt.look, e);
           cam.pos.copy(camera.position); cam.look.copy(curLook);
         });
@@ -804,7 +798,6 @@ const B3D = (() => {
       // shortest path. Forward for dice rolls, backward only for "back N" cards.
       const dir = back ? -1 : 1;
       let steps = sameRing ? (dir === 1 ? (to - from + len) % len : (from - to + len) % len) : 0;
-      try { const _l = JSON.parse(localStorage.getItem('v0mv') || '[]'); _l.push({ from, to, back: !!back, jump: !!jump, sameRing, base, len, dir, steps }); localStorage.setItem('v0mv', JSON.stringify(_l.slice(-40))); } catch (e) {}
       // Only a genuine "jump" (metro warp between rings) flies through the air.
       // Every dice roll walks tile-by-tile within its ring.
       if (jump || !sameRing || steps === 0) {
