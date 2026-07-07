@@ -289,9 +289,29 @@ const B3D = (() => {
   }
 
   // ---------- tokens ----------
-  function buildToken(colorHex) {
+  // Cosmetic finish -> Three material. `colorHex` is the player's identity
+  // color; finishes that ignore it for the body still show it via the base ring
+  // (added in buildToken) so players stay distinguishable.
+  function skinMaterial(finish, colorHex) {
+    switch (finish) {
+      case 'gold':     return new THREE.MeshStandardMaterial({ color: '#ffcf4d', metalness: 1, roughness: 0.18 });
+      case 'chrome':   return new THREE.MeshStandardMaterial({ color: '#eef3f9', metalness: 1, roughness: 0.04 });
+      case 'steel':    return new THREE.MeshStandardMaterial({ color: '#c3ccd8', metalness: 0.95, roughness: 0.34 });
+      case 'obsidian': return new THREE.MeshStandardMaterial({ color: '#15171d', metalness: 0.7, roughness: 0.12 });
+      case 'neon':     return new THREE.MeshStandardMaterial({ color: '#0c0f14', emissive: colorHex, emissiveIntensity: 0.9, metalness: 0.4, roughness: 0.3 });
+      case 'ruby':     return new THREE.MeshStandardMaterial({ color: '#d61f4c', emissive: '#5e0018', emissiveIntensity: 0.35, metalness: 0.35, roughness: 0.05 });
+      case 'emerald':  return new THREE.MeshStandardMaterial({ color: '#13b36a', emissive: '#003a1f', emissiveIntensity: 0.35, metalness: 0.35, roughness: 0.05 });
+      case 'diamond':  return new THREE.MeshStandardMaterial({ color: '#e6f4ff', metalness: 0.2, roughness: 0.0 });
+      case 'crown':    return new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.28 });
+      case 'matte':
+      default:         return new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.28 });
+    }
+  }
+
+  function buildToken(colorHex, skinId) {
+    const finish = (typeof skinFinish === 'function') ? skinFinish(skinId || 'classic') : 'matte';
     const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.28 });
+    const mat = skinMaterial(finish, colorHex);
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.06, 24), mat);
     base.position.y = 0.03;
     const body = new THREE.Mesh(new THREE.ConeGeometry(0.105, 0.3, 24), mat);
@@ -301,6 +321,24 @@ const B3D = (() => {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 16), mat);
     head.position.y = 0.44;
     [base, body, neck, head].forEach(m => { m.castShadow = true; g.add(m); });
+    // identity ring (player color) at the base — always shown so premium
+    // finishes like gold/chrome don't make players indistinguishable.
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.022, 10, 28),
+      new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.3, roughness: 0.5 }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.03; ring.castShadow = true;
+    g.add(ring);
+    // crown topper (premium skin)
+    if (finish === 'crown') {
+      const gold = new THREE.MeshStandardMaterial({ color: '#ffcf4d', metalness: 1, roughness: 0.2 });
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.035, 16, 1, true), gold);
+      band.position.y = 0.52; band.castShadow = true; g.add(band);
+      for (let i = 0; i < 5; i++) {
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.055, 8), gold);
+        const a = (i / 5) * Math.PI * 2;
+        spike.position.set(Math.cos(a) * 0.055, 0.565, Math.sin(a) * 0.055);
+        spike.castShadow = true; g.add(spike);
+      }
+    }
     return g;
   }
 
@@ -758,10 +796,13 @@ const B3D = (() => {
 
     syncPlayers(players, myIdx) {
       players.forEach((p, pi) => {
-        if (!tokens[pi]) {
-          const g = buildToken(PLAYER_COLORS[p.color].solid);
+        const skin = p.skin || 'classic';
+        // (Re)build the piece if it doesn't exist yet or its skin/color changed.
+        if (!tokens[pi] || tokens[pi].colorIdx !== p.color || tokens[pi].skin !== skin) {
+          if (tokens[pi]) scene.remove(tokens[pi].group);
+          const g = buildToken(PLAYER_COLORS[p.color].solid, skin);
           scene.add(g);
-          tokens[pi] = { group: g, colorIdx: p.color };
+          tokens[pi] = { group: g, colorIdx: p.color, skin };
         }
         tokens[pi].group.visible = !p.bankrupt;
         // Jail cage on/off is driven by the FX queue (see ui.js) so the bars

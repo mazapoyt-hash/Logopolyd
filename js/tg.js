@@ -76,12 +76,24 @@ const TG = (() => {
     }
   }
 
+  // Open a Telegram Stars invoice (returned as a link from our backend).
+  // Resolves with the status string Telegram reports ('paid' | 'cancelled' | ...).
+  function openInvoice(link) {
+    return new Promise((resolve) => {
+      if (!wa || !wa.openInvoice) { resolve('unsupported'); return; }
+      try { wa.openInvoice(link, status => resolve(status)); }
+      catch (e) { resolve('failed'); }
+    });
+  }
+
   return {
     inside, user,
+    id: () => (user && user.id) || null,
+    initData: () => (wa && wa.initData) || '',   // signed payload; verified server-side
     name: displayName,
     photo: () => (user && user.photo_url) || '',
     startParam: () => (wa && wa.initDataUnsafe && wa.initDataUnsafe.start_param) || '',
     inviteConfigured: () => !!inviteLink('X'),
-    haptic, shareInvite, init,
+    haptic, shareInvite, init, openInvoice,
   };
 })();
