@@ -111,10 +111,25 @@ function renderFx(s) {
     renderPlaques(); // reveal the new balance only now
   };
 
+  // Detect jail transitions so the cage animates at the right moment rather
+  // than snapping the instant the dice roll updates state.
+  const jailChanges = [];
+  if (fxq.jail) {
+    s.players.forEach((p, i) => {
+      const now = !!p.inJail && !p.bankrupt;
+      if (fxq.jail[i] !== undefined && fxq.jail[i] !== now) jailChanges.push({ i, now });
+    });
+  }
+  fxq.jail = s.players.map(p => !!p.inJail && !p.bankrupt);
+
   // Consume new animation events exactly once, strictly in order.
   // Re-broadcasts of the same state are harmless: seq dedup skips them.
   const evs = (s.events || []).filter(e => e.seq > (fxq.lastSeq || 0));
   if (evs.length) fxq.lastSeq = evs[evs.length - 1].seq;
+
+  // Break the cage BEFORE the freed token walks out of jail.
+  jailChanges.filter(c => !c.now).forEach(({ i }) => queueFx(async () => { B3D.setJail(i, false); await sleep(480); }));
+
   evs.forEach(ev => {
     if (ev.kind === 'dice') {
       queueFx(async () => {
@@ -134,6 +149,9 @@ function renderFx(s) {
       });
     }
   });
+
+  // Build the cage AFTER the jailed token has finished walking/jumping into jail.
+  jailChanges.filter(c => c.now).forEach(({ i }) => queueFx(async () => { B3D.setJail(i, true); await sleep(360); }));
 
   // Apply balance changes after the queued animation (landing), or now if idle.
   if (moneyChanges.length) {

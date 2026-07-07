@@ -777,28 +777,6 @@ const B3D = (() => {
       // which used to make the hops play in-place and look like a teleport.
       tok.group.position.copy(tileWorld(from));
       cam.followPi = pi;
-      // Intro: smoothly fly the camera in and frame the token BEFORE it starts
-      // walking, so the move doesn't look jerky. During 'intro' the loop's
-      // follow recompute is skipped and cam.pos tracks the camera (no lerp
-      // fight). Because the follow target now keeps the same "north-up"
-      // orientation as the overview, a gentle straight glide (smootherstep)
-      // frames the token without cutting through the board or flipping the view.
-      {
-        const tgt = followTarget(tok.group.position);
-        const startP = camera.position.clone(), startL = curLook.clone();
-        const lift = 1.2;   // slight rise mid-glide so it arcs down onto the tile
-        cam.mode = 'intro';
-        await tween(950, k => {
-          const e = smoother(k);
-          camera.position.lerpVectors(startP, tgt.pos, e);
-          camera.position.y += Math.sin(e * Math.PI) * lift;
-          curLook.lerpVectors(startL, tgt.look, e);
-          cam.pos.copy(camera.position); cam.look.copy(curLook);
-        });
-        cam.mode = 'follow';
-        // brief beat so the framed shot reads before the token starts walking
-        await tween(320, () => {});
-      }
       // ring-aware stepping: outer ring = 40 tiles (base 0), inner = 24 (base 40)
       const base = from >= INNER_BASE ? INNER_BASE : 0;
       const len = from >= INNER_BASE ? INNER_COUNT : 40;
@@ -807,9 +785,26 @@ const B3D = (() => {
       // shortest path. Forward for dice rolls, backward only for "back N" cards.
       const dir = back ? -1 : 1;
       let steps = sameRing ? (dir === 1 ? (to - from + len) % len : (from - to + len) % len) : 0;
-      // Only a genuine "jump" (metro warp between rings) flies through the air.
-      // Every dice roll walks tile-by-tile within its ring.
-      if (jump || !sameRing || steps === 0) {
+      // A "jump" (jail teleport or metro warp) flies through the air; every dice
+      // roll walks tile-by-tile within its ring.
+      const isTeleport = jump || !sameRing || steps === 0;
+
+      if (isTeleport) {
+        // Teleports read best from a WIDE view: pull the camera out to the
+        // overview and watch the token fly across the board. Doing the walk's
+        // close intro-zoom here caused a jarring double-dive when landing on
+        // "Go To Jail" (walk to the tile, then teleport straight after).
+        {
+          const o = overviewFor(cam.flat);
+          const startP = camera.position.clone(), startL = curLook.clone();
+          cam.mode = 'intro';
+          await tween(520, k => {
+            const e = easeInOut(k);
+            camera.position.lerpVectors(startP, o.pos, e);
+            curLook.lerpVectors(startL, o.look, e);
+            cam.pos.copy(camera.position); cam.look.copy(curLook);
+          });
+        }
         const a = tok.group.position.clone(), b = tileWorld(to);
         if (onHop) onHop('fly');
         await tween(700, k => {
@@ -820,6 +815,28 @@ const B3D = (() => {
         });
         tok.group.rotation.y = 0;
       } else {
+        // Walk: smoothly fly the camera in and frame the token BEFORE it starts
+        // walking, so the move doesn't look jerky. During 'intro' the loop's
+        // follow recompute is skipped and cam.pos tracks the camera (no lerp
+        // fight). Because the follow target keeps the same "north-up"
+        // orientation as the overview, a gentle straight glide (smootherstep)
+        // frames the token without cutting through the board or flipping the view.
+        {
+          const tgt = followTarget(tok.group.position);
+          const startP = camera.position.clone(), startL = curLook.clone();
+          const lift = 1.2;   // slight rise mid-glide so it arcs down onto the tile
+          cam.mode = 'intro';
+          await tween(950, k => {
+            const e = smoother(k);
+            camera.position.lerpVectors(startP, tgt.pos, e);
+            camera.position.y += Math.sin(e * Math.PI) * lift;
+            curLook.lerpVectors(startL, tgt.look, e);
+            cam.pos.copy(camera.position); cam.look.copy(curLook);
+          });
+          cam.mode = 'follow';
+          // brief beat so the framed shot reads before the token starts walking
+          await tween(320, () => {});
+        }
         for (let s = 1; s <= steps; s++) {
           const t = base + (((from - base) + dir * s) % len + len) % len;
           const a = tok.group.position.clone(), b = tileWorld(t);
