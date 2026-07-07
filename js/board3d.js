@@ -30,6 +30,13 @@ const B3D = (() => {
   const anims = [];           // active tweens
   const cam = { pos: new THREE.Vector3(), look: new THREE.Vector3(), mode: 'overview', followPi: -1, flat: false };
   let curLook = new THREE.Vector3(0, 0, 0);
+  // Smoothed anchor the follow camera tracks. The token walks in discrete
+  // stop/start hops; feeding its exact position to the camera each frame made
+  // the view tremble on every step. We low-pass the tracked point here so the
+  // camera glides continuously regardless of the token's stepped micro-motion.
+  const followAnchor = new THREE.Vector3();
+  let followAnchorSet = false;
+  let lastFrame = 0;
 
   // ---------- layout helpers ----------
   function gridPos(i) {
@@ -171,7 +178,7 @@ const B3D = (() => {
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         const nm = shortName(t);
         if (i === 0) {
-          ctx.fillText('GO', 0, K * 0.14);
+          ctx.fillText(tileName('GO'), 0, K * 0.14);
           ctx.font = `800 ${Math.round(K * 0.5)}px Rubik, sans-serif`;
           ctx.fillText('←', 0, -K * 0.28);
         } else {
@@ -226,7 +233,7 @@ const B3D = (() => {
       ctx.restore();
     });
 
-    // red diagonal MONOPOLY plaque in the center
+    // red diagonal brand plaque in the center
     ctx.save();
     ctx.translate(TEX / 2, TEX / 2);
     ctx.rotate(-Math.PI / 4.3);
@@ -243,7 +250,7 @@ const B3D = (() => {
     ctx.fillStyle = '#fff';
     ctx.font = `800 ${Math.round(ph2 * 0.62)}px Rubik, sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('MONOPOLY', 0, 4);
+    ctx.fillText(t('appName'), 0, 4);
     ctx.restore();
 
     if (boardTex) boardTex.needsUpdate = true;
@@ -282,9 +289,29 @@ const B3D = (() => {
   }
 
   // ---------- tokens ----------
-  function buildToken(colorHex) {
+  // Cosmetic finish -> Three material. `colorHex` is the player's identity
+  // color; finishes that ignore it for the body still show it via the base ring
+  // (added in buildToken) so players stay distinguishable.
+  function skinMaterial(finish, colorHex) {
+    switch (finish) {
+      case 'gold':     return new THREE.MeshStandardMaterial({ color: '#ffcf4d', metalness: 1, roughness: 0.18 });
+      case 'chrome':   return new THREE.MeshStandardMaterial({ color: '#eef3f9', metalness: 1, roughness: 0.04 });
+      case 'steel':    return new THREE.MeshStandardMaterial({ color: '#c3ccd8', metalness: 0.95, roughness: 0.34 });
+      case 'obsidian': return new THREE.MeshStandardMaterial({ color: '#15171d', metalness: 0.7, roughness: 0.12 });
+      case 'neon':     return new THREE.MeshStandardMaterial({ color: '#0c0f14', emissive: colorHex, emissiveIntensity: 0.9, metalness: 0.4, roughness: 0.3 });
+      case 'ruby':     return new THREE.MeshStandardMaterial({ color: '#d61f4c', emissive: '#5e0018', emissiveIntensity: 0.35, metalness: 0.35, roughness: 0.05 });
+      case 'emerald':  return new THREE.MeshStandardMaterial({ color: '#13b36a', emissive: '#003a1f', emissiveIntensity: 0.35, metalness: 0.35, roughness: 0.05 });
+      case 'diamond':  return new THREE.MeshStandardMaterial({ color: '#e6f4ff', metalness: 0.2, roughness: 0.0 });
+      case 'crown':    return new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.28 });
+      case 'matte':
+      default:         return new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.28 });
+    }
+  }
+
+  function buildToken(colorHex, skinId) {
+    const finish = (typeof skinFinish === 'function') ? skinFinish(skinId || 'classic') : 'matte';
     const g = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.85, roughness: 0.28 });
+    const mat = skinMaterial(finish, colorHex);
     const base = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.15, 0.06, 24), mat);
     base.position.y = 0.03;
     const body = new THREE.Mesh(new THREE.ConeGeometry(0.105, 0.3, 24), mat);
@@ -294,6 +321,24 @@ const B3D = (() => {
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 20, 16), mat);
     head.position.y = 0.44;
     [base, body, neck, head].forEach(m => { m.castShadow = true; g.add(m); });
+    // identity ring (player color) at the base — always shown so premium
+    // finishes like gold/chrome don't make players indistinguishable.
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.022, 10, 28),
+      new THREE.MeshStandardMaterial({ color: colorHex, metalness: 0.3, roughness: 0.5 }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.03; ring.castShadow = true;
+    g.add(ring);
+    // crown topper (premium skin)
+    if (finish === 'crown') {
+      const gold = new THREE.MeshStandardMaterial({ color: '#ffcf4d', metalness: 1, roughness: 0.2 });
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.035, 16, 1, true), gold);
+      band.position.y = 0.52; band.castShadow = true; g.add(band);
+      for (let i = 0; i < 5; i++) {
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.02, 0.055, 8), gold);
+        const a = (i / 5) * Math.PI * 2;
+        spike.position.set(Math.cos(a) * 0.055, 0.565, Math.sin(a) * 0.055);
+        spike.castShadow = true; g.add(spike);
+      }
+    }
     return g;
   }
 
@@ -588,20 +633,36 @@ const B3D = (() => {
   function loop() {
     requestAnimationFrame(loop);
     const now = performance.now();
+    // Frame-time in seconds, clamped so a stall (tab switch) can't teleport the
+    // camera. Used for frame-rate-independent smoothing below.
+    const dt = lastFrame ? Math.min(0.05, (now - lastFrame) / 1000) : 1 / 60;
+    lastFrame = now;
     for (let i = anims.length - 1; i >= 0; i--) {
       const a = anims[i];
       const k = Math.min(1, (now - a.t0) / a.dur);
       a.fn(k);
       if (k >= 1) { anims.splice(i, 1); a.res(); }
     }
-  // camera follow: glide in close and orbit around the board with the token,
-  // always looking at it — the cinematic follow the game had originally.
-  if (cam.mode === 'follow' && tokens[cam.followPi]) {
-    const t = followTarget(tokens[cam.followPi].group.position);
-    cam.pos.copy(t.pos); cam.look.copy(t.look);
-  }
-  camera.position.lerp(cam.pos, 0.06);
-  curLook.lerp(cam.look, 0.09);
+    // camera follow: glide close and pan with the token, always looking at it.
+    if (cam.mode === 'follow' && tokens[cam.followPi]) {
+      const tp = tokens[cam.followPi].group.position;
+      // Low-pass the tracked point (only x/z — the token bobs in y as it hops)
+      // so per-step start/stop doesn't reach the camera. tau ~0.13s.
+      if (!followAnchorSet) { followAnchor.set(tp.x, 0, tp.z); followAnchorSet = true; }
+      const aA = 1 - Math.exp(-dt / 0.13);
+      followAnchor.x += (tp.x - followAnchor.x) * aA;
+      followAnchor.z += (tp.z - followAnchor.z) * aA;
+      const t = followTarget(followAnchor);
+      cam.pos.copy(t.pos); cam.look.copy(t.look);
+    } else {
+      followAnchorSet = false;
+    }
+    // Frame-rate-independent damping with a SINGLE time constant for both
+    // position and look-at, so they move in lockstep (mismatched rates were
+    // causing a subtle rotational wobble). tau ~0.22s = smooth, cinematic glide.
+    const aCam = 1 - Math.exp(-dt / 0.22);
+    camera.position.lerp(cam.pos, aCam);
+    curLook.lerp(cam.look, aCam);
     camera.lookAt(curLook);
     renderer.render(scene, camera);
   }
@@ -735,10 +796,13 @@ const B3D = (() => {
 
     syncPlayers(players, myIdx) {
       players.forEach((p, pi) => {
-        if (!tokens[pi]) {
-          const g = buildToken(PLAYER_COLORS[p.color].solid);
+        const skin = p.skin || 'classic';
+        // (Re)build the piece if it doesn't exist yet or its skin/color changed.
+        if (!tokens[pi] || tokens[pi].colorIdx !== p.color || tokens[pi].skin !== skin) {
+          if (tokens[pi]) scene.remove(tokens[pi].group);
+          const g = buildToken(PLAYER_COLORS[p.color].solid, skin);
           scene.add(g);
-          tokens[pi] = { group: g, colorIdx: p.color };
+          tokens[pi] = { group: g, colorIdx: p.color, skin };
         }
         tokens[pi].group.visible = !p.bankrupt;
         // Jail cage on/off is driven by the FX queue (see ui.js) so the bars

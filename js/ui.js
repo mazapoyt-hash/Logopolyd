@@ -510,7 +510,7 @@ function deedHTML(i) {
   let rows = '';
   if (t.type === 'prop') {
     rows = `<tr><td>Аренда</td><td>${CUR}${t.rent[0]}</td></tr>
-      <tr><td>С монополией</td><td>${CUR}${t.rent[0] * 2}</td></tr>
+      <tr><td>С полным набором</td><td>${CUR}${t.rent[0] * 2}</td></tr>
       ${[1, 2, 3, 4].map(n => `<tr><td>${n} дом${n > 1 ? 'а' : ''}</td><td>${CUR}${t.rent[n]}</td></tr>`).join('')}
       <tr><td>Отель</td><td>${CUR}${t.rent[5]}</td></tr>
       <tr><td>Цена дома</td><td>${CUR}${t.house}</td></tr>`;
@@ -714,6 +714,14 @@ document.addEventListener('DOMContentLoaded', () => {
     if (!b) return;
     setLang(b.dataset.lang);
   });
+
+  // ---- skin shop: load inventory (backend if in Telegram, else local cache)
+  // and open the shop overlay from the lobby button.
+  if (typeof SHOP !== 'undefined') {
+    SHOP.load();
+    const shopBtn = $('#btn-shop');
+    if (shopBtn) shopBtn.addEventListener('click', () => SHOP.open());
+  }
 
   // ---- emoji quick reactions (throttled to avoid spam) ----
   let lastReact = 0;

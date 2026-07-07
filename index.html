@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no">
-<title>Monopoly Online</title>
+<title>КАПИТАЛ — CAPITAL</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="css/style.css">
@@ -21,7 +21,7 @@
       <button class="lang-btn" data-lang="en">EN</button>
       <button class="lang-btn" data-lang="de">DE</button>
     </div>
-    <div class="mono-logo">MONOPOLY</div>
+    <div class="mono-logo" data-i18n="appName">КАПИТАЛ</div>
     <div class="lobby-sub" data-i18n="subtitle">Онлайн-игра с друзьями</div>
 
     <div id="lobby-form">
@@ -33,6 +33,7 @@
       <input id="inp-name" maxlength="14" placeholder="Твоё имя" data-i18n-ph="yourName" autocomplete="off">
       <button id="btn-create" class="btn gold" data-i18n="createRoom">Создать комнату</button>
       <button id="btn-solo" class="btn" data-i18n="soloPlay">Игра с ботами</button>
+      <button id="btn-shop" class="btn btn-shop" type="button" data-i18n="shopBtn">Магазин фишек</button>
       <div class="join-row">
         <input id="inp-code" maxlength="6" placeholder="КОД" data-i18n-ph="code" autocomplete="off">
         <button id="btn-join" class="btn" data-i18n="join">Войти</button>
@@ -124,7 +125,7 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
         <span data-i18n="inviteTg">Пригласить в Telegram</span>
       </button>
-      <div class="players-label" data-i18n="players">Игроки:</div>
+      <div class="players-label" data-i18n="players">Игро��и:</div>
       <div id="lobby-players" class="lobby-players"></div>
       <button id="btn-start" class="btn gold" style="display:none" data-i18n="startGame">Начать игру</button>
       <div id="wait-note" class="wait-note" data-i18n="waitingPlayers">Ожидание игроков…</div>
@@ -229,11 +230,13 @@
 <script src="js/vendor/three.min.js"></script>
 <script src="js/tg.js"></script>
 <script src="js/i18n.js"></script>
+<script src="js/skins.js"></script>
 <script src="js/data.js"></script>
 <script src="js/game.js"></script>
 <script src="js/bot.js"></script>
 <script src="js/net.js"></script>
 <script src="js/board3d.js"></script>
+<script src="js/shop.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

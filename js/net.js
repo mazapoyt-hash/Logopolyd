@@ -14,6 +14,8 @@ const NET = {
   state: null,
   myName: '',
   myPhoto: '',          // Telegram avatar url (optional)
+  mySkin: 'classic',    // equipped token skin (set from the shop/inventory)
+  myOwned: [],          // owned skin ids (server is the authority; used to validate equip)
   settings: null,       // host-chosen game settings (applied at start)
   joined: false,        // client: got first lobby snapshot
   hostAway: false,      // client: host disconnected, waiting for it to return
@@ -148,7 +150,7 @@ function hostGame(name, cb, brokerIdx = 0) {
       let data; try { data = JSON.parse(raw.toString()); } catch (e) { return; }
       hostOnData(data);
     });
-    NET.lobbyPlayers = [{ peerId: NET.myPeerId, name, photo: NET.myPhoto || '' }];
+    NET.lobbyPlayers = [{ peerId: NET.myPeerId, name, photo: NET.myPhoto || '', skin: NET.mySkin || 'classic' }];
     saveSession();
     startHeartbeat();
     cb(null, code);
@@ -227,7 +229,7 @@ function hostOnData(data) {
       return;
     }
     if (NET.lobbyPlayers.length >= 6) { hostBroadcast({ type: 'errmsg', to: data.from, text: 'Комната заполнена (макс. 6)' }, 1); return; }
-    NET.lobbyPlayers.push({ peerId: data.from, name: String(data.name).slice(0, 14) || 'Игрок', photo: (data.photo || '').slice(0, 512) });
+    NET.lobbyPlayers.push({ peerId: data.from, name: String(data.name).slice(0, 14) || 'Игрок', photo: (data.photo || '').slice(0, 512), skin: (typeof validSkin === 'function' ? validSkin(data.skin, FREE_SKINS.concat(data.owned || [])) : (data.skin || 'classic')) });
     hostBroadcast({ type: 'lobby', players: NET.lobbyPlayers, roomCode: NET.roomCode }, 1);
     saveHostState();
     NET.onUpdate();
@@ -303,7 +305,7 @@ function soloGame(name, botCount) {
   const bots = BOT_ROSTER.slice(0, Math.max(1, Math.min(4, botCount))).map((b, i) => ({
     peerId: 'bot:' + i, name: `${b.emoji} ${b.name}`, photo: '',
   }));
-  NET.lobbyPlayers = [{ peerId: NET.myPeerId, name, photo: NET.myPhoto || '' }, ...bots];
+  NET.lobbyPlayers = [{ peerId: NET.myPeerId, name, photo: NET.myPhoto || '', skin: NET.mySkin || 'classic' }, ...bots];
   saveSession();
   hostStartGame();
   startBotLoop();
@@ -367,7 +369,7 @@ function joinGame(name, code, cb, resumePeerId = null) {
     if (err) { finish(new Error('Нет связи с сервером. Проверь интернет и попробуй ещё раз.')); return; }
     NET.client = client;
     client.subscribe(topicAll(rc), { qos: 1 }, () => {
-      pub(topicHost(rc), { type: 'join', name, from: NET.myPeerId, photo: NET.myPhoto || '' }, 1);
+      pub(topicHost(rc), { type: 'join', name, from: NET.myPeerId, photo: NET.myPhoto || '', skin: NET.mySkin || 'classic', owned: (NET.myOwned || []) }, 1);
     });
 
     const timer = setTimeout(() => {

@@ -15,6 +15,7 @@ function newGameState(lobbyPlayers, settings) {
     auction: null,          // active auction state (if enabled)
     players: lobbyPlayers.map((p, i) => ({
       peerId: p.peerId, name: p.name, photo: p.photo || '', color: i % PLAYER_COLORS.length,
+      skin: p.skin || 'classic',
       money: cfg.startMoney, pos: 0, ring: 0, metroReturn: 5,
       inJail: false, jailTurns: 0, jailCards: 0, bankrupt: false,
     })),
